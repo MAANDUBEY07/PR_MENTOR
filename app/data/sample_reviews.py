@@ -1,0 +1,21 @@
+from datetime import datetime, timezone
+from uuid import uuid4
+
+def sample_review(review_id: str | None = None, submitted_url: str = "") -> dict:
+    now = datetime.now(timezone.utc)
+    import re
+    submitted_number = int(re.search(r"/pull/(\d+)$", submitted_url).group(1)) if re.search(r"/pull/(\d+)$", submitted_url) else 42
+    pr = {
+        "repository_owner": "pr-mentor-demo", "repository_name": "sample-project",
+        "repository_url": "https://github.com/pr-mentor-demo/sample-project", "pull_request_number": submitted_number,
+        "pull_request_url": submitted_url or "https://github.com/pr-mentor-demo/sample-project/pull/42",
+        "title": "Illustrative pull request: safer account lookup", "description": "Fictional demo data; this is not analysis of the submitted repository.",
+        "author": "demo-user", "base_branch": "main", "head_branch": "demo/fix-account-lookup", "head_sha": "demo-only", "state": "open", "changed_files": 3, "additions": 18, "deletions": 5,
+        "repository": "pr-mentor-demo/sample-project", "pull_request_title": "Illustrative pull request: safer account lookup", "url": submitted_url or "https://github.com/pr-mentor-demo/sample-project/pull/42",
+    }
+    findings = [
+        {"id":"demo-bug-1", "title":"Lookup may fail when no matching account exists", "description":"The illustrative code uses the result before checking whether an account was found.", "file_path":"src/accounts.py", "line_start":18, "line_end":18, "severity":"medium", "category":"bug", "confidence":0.91, "source":"ai_candidate", "verification_status":"needs_review", "evidence":["Illustrative example only; source code was not fetched or analyzed."], "why_it_matters":"A missing account could cause an unexpected error instead of a useful response.", "suggested_fix":"Check for a missing result before reading account fields.", "learning_explanation":"Database lookups often return no value. Handle that case explicitly.", "limitations":["Fictional sample, not evidence about the submitted pull request."]},
+        {"id":"demo-security-1", "title":"Avoid placing credentials in source code", "description":"Hardcoded credentials would be exposed to every repository reader.", "file_path":"config/example.py", "line_start":7, "line_end":7, "severity":"high", "category":"security", "confidence":0.88, "source":"static_analysis", "verification_status":"needs_review", "evidence":["Example of a credential-handling risk; no analyzer was run on the submitted code."], "why_it_matters":"Committed secrets can be copied and abused even after removal from a later commit.", "suggested_fix":"Load secrets from a managed environment variable and rotate any exposed credential.", "learning_explanation":"Configuration that grants access should stay outside version control.", "limitations":["Illustrative only; not a detected secret."]},
+        {"id":"demo-quality-1", "title":"Consider extracting repeated validation", "description":"The demo repeats similar input checks in two places.", "file_path":"src/validation.py", "line_start":12, "line_end":20, "severity":"low", "category":"code_quality", "confidence":0.76, "source":"ai_candidate", "verification_status":"needs_review", "evidence":["Illustrative demo observation."], "why_it_matters":"A shared helper makes future changes easier to apply consistently.", "suggested_fix":"Move the common check into a small helper and test it once.", "learning_explanation":"Refactoring repeated logic can reduce maintenance work, but duplication is not always harmful.", "limitations":["Fictional sample; use judgment before applying this refactor."]}
+    ]
+    return {"review_id": review_id or uuid4().hex, "status":"completed", "analysis_mode":"demo", "is_demo":True, "pull_request":pr, "summary":"Illustrative demo review with sample bug, security, and maintainability observations. No submitted repository code or external analyzer was inspected.", "findings":findings, "verification_summary":{"verified":0,"needs_review":3,"unsupported":0}, "tool_results":[{"tool":"demo_dataset","status":"sample","executed":False}], "warnings":["Demo data only. Findings do not describe the submitted pull request."], "created_at":now, "duration_ms":0}

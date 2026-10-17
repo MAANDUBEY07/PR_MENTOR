@@ -1,7 +1,7 @@
 export type AnalysisMode = 'demo' | 'live';
 export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'informational';
 export type VerificationStatus = 'verified' | 'needs_review' | 'unsupported';
-export type FindingSource = 'static_analysis' | 'ai_candidate' | 'test_evidence' | 'combined';
+export type FindingSource = 'static_analysis' | 'ai_candidate' | 'test_evidence' | 'combined' | 'demo';
 
 export interface PullRequestMetadata {
   repository_owner: string;
@@ -10,11 +10,11 @@ export interface PullRequestMetadata {
   pull_request_number: number;
   pull_request_url: string;
   title: string;
-  description: string;
-  author: string;
-  base_branch: string;
-  head_branch: string;
-  head_sha: string;
+  description: string | null;
+  author: string | null;
+  base_branch: string | null;
+  head_branch: string | null;
+  head_sha: string | null;
   state: string;
   changed_files: number;
   additions: number;

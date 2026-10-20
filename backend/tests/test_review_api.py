@@ -7,6 +7,7 @@ from app.schemas.github import ChangedFile, PullRequestBundle, PullRequestMetada
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
+    monkeypatch.setenv("PR_MENTOR_STORAGE", "sqlite")
     monkeypatch.setenv("PR_MENTOR_DATABASE_PATH", str(tmp_path / "api.sqlite3"))
     return TestClient(app)
 

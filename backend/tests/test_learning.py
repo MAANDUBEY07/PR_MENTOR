@@ -6,6 +6,7 @@ from app.main import app
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
+    monkeypatch.setenv("PR_MENTOR_STORAGE", "sqlite")
     monkeypatch.setenv("PR_MENTOR_DATABASE_PATH", str(tmp_path / "learning.sqlite3"))
     return TestClient(app)
 

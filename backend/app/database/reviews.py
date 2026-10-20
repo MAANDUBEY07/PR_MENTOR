@@ -13,11 +13,21 @@ class ReviewStore(Protocol):
     def get_review(self, review_id: str) -> dict[str, Any] | None: ...
     def list_reviews(self, limit: int = 50) -> list[dict[str, Any]]: ...
     def save_pull_request(self, url: str) -> dict[str, Any]: ...
+    def list_saved(self) -> list[dict[str, Any]]: ...
     def delete_saved(self, saved_id: str) -> bool: ...
+    def record_learning_attempt(self, exercise_id: str, category: str, correct: bool) -> None: ...
+    def learning_progress(self) -> dict[str, Any]: ...
+    def learning_history(self, limit: int = 100) -> dict[str, Any]: ...
+    def ping(self) -> None: ...
 
 
 class SQLiteReviewStore:
     """SQLite implementation. A new instance is cheap; connections are per operation."""
+
+    def ping(self) -> None:
+        from app.database.connection import ping
+
+        ping()
 
     def save_review(self, review: dict[str, Any]) -> dict[str, Any]:
         review_id = review["review_id"]
@@ -77,6 +87,13 @@ class SQLiteReviewStore:
         return {"temporary": False, "attempts": [{"exercise_id": row["exercise_id"], "category": row["category"], "correct": bool(row["correct"])} for row in rows]}
 
 
-def get_store() -> SQLiteReviewStore:
-    """Factory boundary; callers can replace this with another ReviewStore."""
+def get_store() -> ReviewStore:
+    """Return the configured storage adapter without silent backend fallback."""
+    from app.config import storage_backend
+
+    if storage_backend() == "mongodb":
+        from app.database.mongo_reviews import MongoReviewStore
+        from app.database.mongo_connection import get_mongo_database
+
+        return MongoReviewStore(get_mongo_database(), ensure_indexes=False)
     return SQLiteReviewStore()

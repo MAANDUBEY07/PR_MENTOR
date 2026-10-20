@@ -43,3 +43,9 @@ def connection() -> Iterator[sqlite3.Connection]:
         raise
     finally:
         db.close()
+
+
+def ping() -> None:
+    """Verify that the configured local SQLite database can be opened."""
+    with connection() as db:
+        db.execute("SELECT 1").fetchone()

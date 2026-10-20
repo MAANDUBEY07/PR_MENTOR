@@ -11,6 +11,21 @@ def database_path() -> Path:
     return Path(value).expanduser().resolve() if value else BACKEND_ROOT / "data" / "pr_mentor.sqlite3"
 
 
+def storage_backend() -> str:
+    value = os.getenv("PR_MENTOR_STORAGE", "sqlite").strip().lower()
+    if value not in {"sqlite", "mongodb"}:
+        raise ValueError("PR_MENTOR_STORAGE must be either 'sqlite' or 'mongodb'.")
+    return value
+
+
+def mongodb_uri() -> str | None:
+    return os.getenv("MONGODB_URI") or None
+
+
+def mongodb_database() -> str:
+    return os.getenv("MONGODB_DATABASE", "pr_mentor").strip() or "pr_mentor"
+
+
 def cors_origins() -> list[str]:
     value = os.getenv("PR_MENTOR_CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
     return [origin.strip() for origin in value.split(",") if origin.strip()]

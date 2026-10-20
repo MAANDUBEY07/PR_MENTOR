@@ -36,7 +36,7 @@ async def analyze(request: AnalyzeRequest) -> ReviewResponse:
         if not request.include_learning:
             for finding in response.findings:
                 finding.learning_explanation = ""
-        _persist(response)
+        await asyncio.to_thread(_persist, response)
         return response
 
     started = datetime.now(timezone.utc)
@@ -118,7 +118,7 @@ async def analyze(request: AnalyzeRequest) -> ReviewResponse:
     if not request.include_learning:
         for finding in response.findings:
             finding.learning_explanation = ""
-    _persist(response)
+    await asyncio.to_thread(_persist, response)
     return response
 
 

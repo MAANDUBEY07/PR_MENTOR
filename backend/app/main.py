@@ -1,13 +1,24 @@
-from fastapi import FastAPI
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import cors_origins
-from app.database.connection import connection
+from app.database.mongo_connection import close_mongo_client
+from app.database.reviews import get_store
 from app.routes.auth import router as auth_router
 from app.routes.learning import router as learning_router
 from app.routes.review import router as review_router
 
-app = FastAPI(title="PR Mentor API", version="0.1.0")
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    try:
+        yield
+    finally:
+        close_mongo_client()
+
+
+app = FastAPI(title="PR Mentor API", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -30,8 +41,10 @@ def api_health():
 
 @app.get("/api/health/ready")
 def readiness():
-    with connection():
-        pass
+    try:
+        get_store().ping()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Configured storage is unavailable.") from exc
     return {"status": "ready", "service": "pr-mentor"}
 
 

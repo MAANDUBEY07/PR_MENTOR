@@ -14,9 +14,27 @@ python -m pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
-Copy `.env.example` to `.env` and export the desired values in the shell (the service intentionally does not load dotenv files implicitly). `PR_MENTOR_DATABASE_PATH` defaults to `backend/data/pr_mentor.sqlite3`. `GITHUB_TOKEN` is optional. AI needs both `LLM_API_KEY` and `LLM_MODEL`; the OpenAI-compatible endpoint may be changed with `LLM_API_BASE_URL`. `PR_MENTOR_CORS_ORIGINS` is a comma-separated allowlist. `PR_MENTOR_HTTP_TIMEOUT` is bounded to 1–60 seconds.
+Copy `.env.example` to `.env` and export the desired values in the shell (the service intentionally does not load dotenv files implicitly). `PR_MENTOR_STORAGE` selects `sqlite` (default) or `mongodb`; the service does not silently fall back if the selected database is unavailable. SQLite uses `PR_MENTOR_DATABASE_PATH`, defaulting to `backend/data/pr_mentor.sqlite3`. MongoDB requires `MONGODB_URI`; `MONGODB_DATABASE` defaults to `pr_mentor`. `GITHUB_TOKEN` is optional. AI needs both `LLM_API_KEY` and `LLM_MODEL`; the OpenAI-compatible endpoint may be changed with `LLM_API_BASE_URL`. `PR_MENTOR_CORS_ORIGINS` is a comma-separated allowlist. `PR_MENTOR_HTTP_TIMEOUT` is bounded to 1–60 seconds.
 
-Run tests from this directory with `python -m pytest -q`. Tests use temporary SQLite files and mock external services; they need no GitHub token, LLM key, or production database.
+Run tests from this directory with `python -m pytest -q`. Tests use temporary SQLite files, `mongomock`, and mocked external services; they need no GitHub token, LLM key, MongoDB server, or production database.
+
+### MongoDB configuration and migration
+
+Set `PR_MENTOR_STORAGE=mongodb`, `MONGODB_URI`, and optionally `MONGODB_DATABASE` to enable MongoDB. For Atlas, use the Atlas-provided `mongodb+srv://` URI and keep TLS certificate validation enabled. Local development can use `mongodb://localhost:27017`. The backend uses PyMongo and `dnspython` for SRV URIs, with bounded connection, server-selection, and socket timeouts. The process-level client is closed during FastAPI shutdown. `/api/health/ready` checks the currently selected storage; liveness remains independent of database availability.
+
+Never commit a real connection URI, print it to logs, or disable TLS certificate validation. Store production credentials in the deployment secret manager and use a least-privilege database user. MongoDB connections and writes are only made by the backend; the browser uses the existing HTTP API.
+
+The migration command is explicit and repeatable. It reads, but never changes or deletes, the SQLite source:
+
+```powershell
+$env:PR_MENTOR_STORAGE = "mongodb"
+$env:MONGODB_URI = "<your-secret-uri>"
+python -m scripts.migrate_sqlite_to_mongodb --source .\data\pr_mentor.sqlite3
+```
+
+The default source path is `PR_MENTOR_DATABASE_PATH`. Migration is never run at application startup. Reviews are upserted by `review_id`; saved URLs and learning attempts use stable unique keys so rerunning the command does not duplicate them.
+
+Collections are `reviews`, `saved_pull_requests`, and `learning_attempts`. Idempotent indexes enforce unique review IDs, saved IDs/URLs, and learning attempt IDs, and support newest-first history queries. The current app has no account or ownership model: review history, saved URLs, and learning progress are shared by all users of the configured database. MongoDB persistence does not add authentication or user isolation.
 
 ## API contracts
 
@@ -42,6 +60,6 @@ The public request/response schemas in `app/schemas/` and route paths above are 
 
 Demo mode returns stable educational findings labelled with source `demo`; it does not fetch or analyze the submitted repository. Live mode fetches GitHub metadata and diffs, retrieves at most 20 bounded Python files, runs available static analyzers in a temporary workspace, and includes AI findings only when configured. Tests are not run; the response explicitly says so. Tool unavailability creates `partial` status and warnings. The submitted repository URL is parsed and restricted to HTTPS `github.com`; server requests use a fixed `api.github.com` base to avoid arbitrary outbound destinations.
 
-SQLite is the replaceable `ReviewStore` implementation. Reviews, saved PR links, and learning attempts survive process restarts. A failed database write returns an API error; the service does not claim success. Before production deployment, configure managed storage, secrets, rate limiting, and an isolated runner if test execution is ever introduced. OTP authentication remains unavailable until secure delivery, hashed challenges, expiry, throttling, and persistent session handling are designed and tested.
+SQLite and MongoDB implement the replaceable `ReviewStore` interface. Reviews, saved PR links, and learning attempts survive process restarts. A failed database write returns an API error; the service does not claim success. Before production deployment, configure managed storage, secrets, rate limiting, and an isolated runner if test execution is ever introduced. OTP authentication remains unavailable until secure delivery, hashed challenges, expiry, throttling, and persistent session handling are designed and tested.
 
 The orchestration layer has no dependency on the nested backend repository from Ritik's fork. `backend/` is an ordinary tracked directory in this canonical repository.

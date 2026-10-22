@@ -40,7 +40,7 @@ def analyze_pull_request(request: ReviewAnalyzeRequest) -> ReviewResponse:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-        
+
 async def analyze_review(payload: AnalyzeRequest):
     try:
         return await analyze(payload)

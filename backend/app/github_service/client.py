@@ -1,37 +1,34 @@
-member-3-ai-review
 """Small HTTP client for GitHub's public REST API."""
 
 from __future__ import annotations
 
 import os
 from collections.abc import Mapping
-"""Narrow HTTP boundary for GitHub's public REST API."""
-
- main
 from typing import Any
 
 import httpx
 
- member-3-ai-review
+from app.config import github_token, http_timeout
+
+"""Narrow HTTP boundary for GitHub's public REST API."""
+
 
 class GitHubServiceError(RuntimeError):
     """A GitHub request failed or returned an unusable response."""
 
     def __init__(self, message: str, *, status_code: int = 502) -> None:
-
-from app.config import github_token, http_timeout
+        super().__init__(message)
+        self.status_code = status_code
 
 API_ROOT = "https://api.github.com"
 
 
 class GitHubAPIError(RuntimeError):
     def __init__(self, message: str, status_code: int | None = None):
- main
         super().__init__(message)
         self.status_code = status_code
 
 
- member-3-ai-review
 class GitHubClient:
     """Fetch JSON from the fixed api.github.com host.
 
@@ -131,4 +128,3 @@ async def request_json(client: httpx.AsyncClient, path: str, *, params: dict[str
 
 def async_client() -> httpx.AsyncClient:
     return httpx.AsyncClient(timeout=http_timeout(), follow_redirects=False)
- main

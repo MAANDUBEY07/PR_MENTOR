@@ -1,4 +1,3 @@
- member-3-ai-review
 import json
 
 import httpx
@@ -365,4 +364,3 @@ def test_reviewer_rejects_malformed_provider_json(monkeypatch):
     monkeypatch.setattr(reviewer, "complete_json", complete)
     with pytest.raises(AIReviewUnavailable, match="invalid JSON"):
         asyncio.run(reviewer.generate_candidates({}, [], []))
- main

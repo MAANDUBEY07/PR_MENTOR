@@ -1,4 +1,3 @@
- member-3-ai-review
 """Tests for the URL-to-review API integration without external services."""
 
 import pytest
@@ -205,4 +204,3 @@ def test_live_review_uses_ingestion_and_reports_unavailable_stages(client, monke
     assert body["findings"][0]["file_path"] == "src/a.py"  # Never expose the temporary workspace path.
     assert body["findings"][0]["verification_status"] == "needs_review"
     assert any(tool["tool"] == "tests" and tool["executed"] is False for tool in body["tool_results"])
- main

@@ -3,16 +3,13 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
- member-3-ai-review
-from app.routes.review import router as review_router
-
-app = FastAPI(title="PR Mentor API", version="0.1.0")
 from app.config import cors_origins
 from app.database.mongo_connection import close_mongo_client
 from app.database.reviews import get_store
 from app.routes.auth import router as auth_router
 from app.routes.learning import router as learning_router
 from app.routes.review import router as review_router
+
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -23,7 +20,6 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="PR Mentor API", version="0.1.0", lifespan=lifespan)
- main
 
 app.add_middleware(
     CORSMiddleware,
@@ -33,10 +29,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(review_router)
+
+@app.get("/", tags=["default"])
+def root():
+    return {
+        "service": "PR Mentor API",
+        "status": "ok",
+        "docs": "/docs",
+        "health": "/health",
+        "readiness": "/api/health/ready",
+    }
 
 
-@app.get("/health")
+@app.get("/health", tags=["default"])
 def health():
     return {"status": "ok", "service": "pr-mentor"}
 

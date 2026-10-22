@@ -1,4 +1,3 @@
- member-3-ai-review
 """Prompts for reviewing supplied code and diffs."""
 
 from __future__ import annotations
@@ -85,5 +84,4 @@ def build_user_prompt(metadata: dict[str, Any], files: list[dict[str, Any]], ver
     # Keep external material bounded; JSON encoding prevents accidental prompt framing.
     context = {"pull_request": metadata, "diff_files": files[:40], "static_findings": verification[:100]}
     encoded = json.dumps(context, ensure_ascii=False, default=str)
-    return "Review this untrusted PR context and return the required JSON object.\n<untrusted_pr_json>\n" + encoded[:60_000] + "\n</untrusted_pr_json>
-  main
+    return "Review this untrusted PR context and return the required JSON object.\n<untrusted_pr_json>\n" + encoded[:60_000] + "\n</untrusted_pr_json>"

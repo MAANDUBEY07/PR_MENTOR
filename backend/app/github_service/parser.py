@@ -1,4 +1,3 @@
- member-3-ai-review
 """Validate GitHub pull-request URLs and normalize API payloads."""
 
 from __future__ import annotations
@@ -155,4 +154,3 @@ def parse_pull_request_url(value: str) -> tuple[str, str, int]:
     except (ValueError, UnicodeError) as exc:
         raise InvalidPullRequestURL("Use an https://github.com/{owner}/{repo}/pull/{number} URL.") from exc
     return owner, repo.removesuffix(".git"), int(raw_number)
-  main

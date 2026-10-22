@@ -1,4 +1,3 @@
-member-3-ai-review
 """Configurable client for an OpenAI-compatible chat completions API."""
 
 from __future__ import annotations
@@ -190,4 +189,3 @@ async def complete_json(system_prompt: str, user_prompt: str) -> str:
     if not isinstance(content, str):
         raise AIReviewUnavailable("AI provider response did not contain JSON text.")
     return content
- main

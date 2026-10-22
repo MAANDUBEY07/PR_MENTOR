@@ -1,4 +1,3 @@
- member-3-ai-review
 """Build the agreed ingestion payload for a public GitHub pull request."""
 
 from __future__ import annotations
@@ -160,4 +159,3 @@ def _required_nonnegative(value: object, field: str) -> int:
     if not isinstance(value, int) or isinstance(value, bool) or value < 0:
         raise ValueError(f"GitHub pull request has invalid {field}.")
     return value
-  main

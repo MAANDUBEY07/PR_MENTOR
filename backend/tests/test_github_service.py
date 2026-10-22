@@ -1,4 +1,3 @@
- member-3-ai-review
 import httpx
 import pytest
 from app.github_service.client import GitHubClient, GitHubServiceError
@@ -195,4 +194,3 @@ def test_github_client_uses_fixed_host_and_maps_rate_limit():
     exc = asyncio.run(run())
     assert exc.status_code == 429
     assert requests[0].url.host == "api.github.com"
- main

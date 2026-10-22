@@ -1,4 +1,3 @@
-member-3-ai-review
 """Fetch every page of changed files for a GitHub pull request."""
 
 from __future__ import annotations
@@ -99,4 +98,3 @@ def parse_patch(item: dict[str, Any]) -> dict[str, Any]:
 
 def _count(value: Any) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
- main

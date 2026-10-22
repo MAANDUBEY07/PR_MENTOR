@@ -1,4 +1,3 @@
- member-3-ai-review
 """Coordinate the AI review engine with the shared PR-ingestion payload."""
 
 from collections.abc import Mapping
@@ -251,4 +250,3 @@ def _static_finding(tool: str, item: Finding, root: Path) -> ReviewFinding:
 
 def _persist(response: ReviewResponse) -> None:
     get_store().save_review(response.model_dump(mode="json"))
-main

@@ -27,7 +27,8 @@ def mongodb_database() -> str:
 
 
 def cors_origins() -> list[str]:
-    value = os.getenv("PR_MENTOR_CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
+    defaults = "http://localhost:5173,http://127.0.0.1:5173,https://18rajritik.github.io,https://pr-mentor.github.io"
+    value = os.getenv("PR_MENTOR_CORS_ORIGINS", defaults)
     return [origin.strip() for origin in value.split(",") if origin.strip()]
 
 

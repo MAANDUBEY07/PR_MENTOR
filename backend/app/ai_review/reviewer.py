@@ -1,4 +1,3 @@
- member-3-ai-review
 """Validate AI review responses and convert them to shared Finding objects."""
 
 from __future__ import annotations
@@ -252,4 +251,3 @@ async def generate_candidates(metadata: dict[str, Any], files: list[dict[str, An
         except Exception as exc:
             raise AIReviewUnavailable("AI provider returned a finding that did not match the review schema.") from exc
     return findings
- main

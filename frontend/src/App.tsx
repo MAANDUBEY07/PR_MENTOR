@@ -1,64 +1,332 @@
-import { useEffect, useMemo, useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { FormEvent, ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Activity, ArrowDownUp, ArrowLeft, ArrowRight, Bookmark, BookOpen, Braces, Bug, Check, CheckCircle2, ChevronDown, CircleHelp, Clock3, Code2, ExternalLink, FileCode2, Filter, GitBranch, GraduationCap, History, KeyRound, LayoutGrid, List, LockKeyhole, Mail, Menu, MessageSquareText, Phone, Plus, Search, ShieldCheck, Sparkles, X } from 'lucide-react';
-import { analyzePullRequest, sendLoginOtp, verifyLoginOtp, type AuthSession, type OtpChallenge } from './services/api';
-import type { ReviewResponse } from './types/review';
+import {
+  Activity, ArrowRight, Bookmark, BookOpen, CheckCircle2, ChevronRight, CircleAlert,
+  Code2, ExternalLink, FileCode2,
+  GitPullRequest, GraduationCap, History, LoaderCircle, Menu, Search,
+  ShieldCheck, Sparkles, X,
+} from 'lucide-react';
+import {
+  analyzePullRequest, deleteSavedPullRequest, getLearningExercises, getLearningHistory,
+  getLearningProgress, getReview, getReviewDiff, getReviewHistory, getSavedPullRequests,
+  savePullRequest, submitExercise,
+} from './services/api';
+import type {
+  AnalysisMode, DiffFile, LearningExercise, LearningHistory, LearningProgress,
+  LearningResult, ReviewFinding, ReviewResponse, SavedPullRequest, Severity,
+} from './types/review';
 
-type Module = { id: string; title: string; description: string; tags: string[]; level: 'Beginner' | 'Intermediate'; category: string; icon: typeof Code2; visual: string; action: string };
-function Github({ size = 16 }: { size?: number }) { return <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .8a11.2 11.2 0 0 0-3.54 21.83c.56.1.77-.24.77-.54v-2.1c-3.14.68-3.8-1.33-3.8-1.33-.51-1.3-1.25-1.65-1.25-1.65-1.03-.7.08-.69.08-.69 1.14.08 1.74 1.17 1.74 1.17 1.01 1.73 2.66 1.23 3.31.94.1-.73.4-1.23.72-1.51-2.5-.28-5.13-1.25-5.13-5.57 0-1.23.44-2.23 1.17-3.02-.12-.29-.51-1.43.11-2.98 0 0 .95-.3 3.08 1.15a10.7 10.7 0 0 1 5.6 0c2.14-1.45 3.08-1.15 3.08-1.15.62 1.55.23 2.69.12 2.98.72.79 1.16 1.79 1.16 3.02 0 4.33-2.64 5.28-5.15 5.56.41.36.77 1.04.77 2.1v3.12c0 .3.2.65.78.54A11.2 11.2 0 0 0 12 .8Z"/></svg> }
-const modules: Module[] = [
-  { id:'reviewer', title:'AI Code Reviewer', description:'Analyze pull requests and spot potential bugs and maintainability issues.', tags:['Python','LLM','Code Review'], level:'Intermediate', category:'Review tools', icon:Sparkles, visual:'review', action:'Open reviewer' },
-  { id:'diff', title:'Diff Explorer', description:'See what changed in a pull request and why those changes matter.', tags:['Git','Source Code'], level:'Beginner', category:'Review tools', icon:GitBranch, visual:'diff', action:'Explore diff' },
-  { id:'verification', title:'Issue Verification', description:'Compare findings with static analysis evidence and test results.', tags:['Ruff','Bandit','Verification'], level:'Intermediate', category:'Review tools', icon:ShieldCheck, visual:'verify', action:'Verify findings' },
-  { id:'security', title:'Security Review', description:'Understand risky code patterns and what deserves a closer look.', tags:['Python','Security'], level:'Intermediate', category:'Review tools', icon:LockKeyhole, visual:'security', action:'Review security' },
-  { id:'learning', title:'Learn Code Review', description:'Build confidence through guided exercises and useful hints.', tags:['Learning','Practice'], level:'Beginner', category:'Learning', icon:BookOpen, visual:'learn', action:'Start learning' },
-  { id:'health', title:'Pull Request Health', description:'Get a clear view of review findings, checks, and open questions.', tags:['GitHub','Analysis'], level:'Beginner', category:'Workspace', icon:Activity, visual:'health', action:'View health' },
-  { id:'quality', title:'Code Quality Insights', description:'Find complexity, maintainability concerns, and repeated patterns.', tags:['Static Analysis','Python'], level:'Intermediate', category:'Review tools', icon:Braces, visual:'quality', action:'See insights' },
-  { id:'history', title:'Review History', description:'Revisit feedback, compare reviews, and track your progress.', tags:['Progress','Analytics'], level:'Beginner', category:'Workspace', icon:History, visual:'history', action:'View history' },
+type Page = 'discover' | 'review' | 'history' | 'saved' | 'diff' | 'learning';
+
+const nav: Array<{ id: Page; label: string; icon: typeof Search }> = [
+  { id: 'discover', label: 'Discover', icon: Search },
+  { id: 'history', label: 'Recent reviews', icon: History },
+  { id: 'saved', label: 'Saved pull requests', icon: Bookmark },
+  { id: 'learning', label: 'Learning lab', icon: GraduationCap },
 ];
-const categories = ['All','Python','JavaScript','Bugs','Security','Code Quality','Beginner Friendly','Learning'];
-const findings = [
-  { severity:'High', title:'Division can fail when the list is empty', file:'src/metrics.py', line:'18', text:'The average is calculated before confirming that values contains any items. An empty list raises ZeroDivisionError.', proof:'The PR adds a call to sum(values) / len(values). No empty-input guard is present in this function.', status:'Verified', color:'red' },
-  { severity:'Medium', title:'Consider handling non-numeric input', file:'src/metrics.py', line:'16', text:'This function assumes every item can be added as a number. Consider validating inputs or documenting the expected type.', proof:'Type hints specify list[float], but callers can still pass unvalidated values at runtime.', status:'Needs review', color:'amber' },
-];
-const navGroups = [
-  { title:'REVIEW TOOLS', items:[['AI Code Reviewer',Sparkles,'reviewer'],['Diff Explorer',GitBranch,'diff'],['Issue Verification',ShieldCheck,'verification'],['Code Quality Checks',CheckCircle2,'quality']] },
-  { title:'LEARNING', items:[['Learn Code Review',BookOpen,'learning'],['Practice Challenges',GraduationCap,'learning'],['Review Explanations',MessageSquareText,'learning'],['My Progress',Activity,'progress']] },
-  { title:'WORKSPACE', items:[['Saved Pull Requests',Bookmark,'saved'],['Recent Reviews',Clock3,'history'],['My Learning History',History,'history'],['Settings',CircleHelp,'settings']] },
-] as const;
+
+function pageFromPath(path: string): Page {
+  const value = path.replace(/^\//, '');
+  return ['review', 'history', 'saved', 'diff', 'learning'].includes(value) ? value as Page : 'discover';
+}
+
+function formatDate(value?: string) {
+  if (!value) return 'Date unavailable';
+  const date = new Date(value);
+  return Number.isNaN(date.valueOf()) ? 'Date unavailable' : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+}
+
+function pretty(value: string) {
+  return value.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
 
 export default function App() {
-  const location = useLocation(); const routerNavigate = useNavigate();
-  const [page,setPage] = useState(location.pathname.slice(1)||'discover'); const [query,setQuery] = useState(''); const [category,setCategory] = useState('All'); const [sort,setSort] = useState('Recommended'); const [view,setView] = useState<'grid'|'list'>('grid'); const [url,setUrl] = useState(''); const [busy,setBusy] = useState(false); const [error,setError] = useState(''); const [review,setReview] = useState<ReviewResponse|null>(null); const [saved,setSaved] = useState<string[]>([]); const [mobileOpen,setMobileOpen] = useState(false); const [exercise,setExercise] = useState(0);
-  const [authIdentity,setAuthIdentity] = useState(()=>sessionStorage.getItem('prmentor_identity')??'');
-  useEffect(() => setPage(location.pathname.slice(1)||'discover'), [location.pathname]);
-  const visible = useMemo(() => { let result=modules.filter(m => (m.title+' '+m.description+' '+m.tags.join(' ')).toLowerCase().includes(query.toLowerCase())); if(category==='Beginner Friendly') result=result.filter(m=>m.level==='Beginner'); else if(category==='Bugs') result=result.filter(m=>['reviewer','verification','quality'].includes(m.id)); else if(category==='Code Quality') result=result.filter(m=>m.id==='quality'); else if(category==='Learning') result=result.filter(m=>m.category==='Learning'); else if(category!=='All') result=result.filter(m=>m.tags.some(t=>t.toLowerCase()===category.toLowerCase())); if(sort==='Recently Updated') result=[...result].reverse(); if(sort==='Difficulty') result=[...result].sort((a,b)=>a.level.localeCompare(b.level)); return result; },[query,category,sort]);
-  const navigate = (next:string) => { routerNavigate(next==='discover'?'/':`/${next}`); setPage(next); setMobileOpen(false); window.scrollTo({top:0,behavior:'smooth'}); };
-  const submit = async () => { setError(''); if(!/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+(?:[/?#].*)?$/i.test(url.trim())) { setError('Enter a valid GitHub pull request URL, like https://github.com/owner/repo/pull/42'); return; } setBusy(true); try { const result=await analyzePullRequest(url.trim()); setReview(result); navigate('review-workspace'); } catch { setError('The review service could not be reached. You can explore the clearly labeled sample review instead.'); } finally { setBusy(false); } };
-  const openModule = (id:string) => navigate(id==='reviewer'?'review-workspace':id);
-  const sidebar = <aside className="sidebar"><div className="side-search"><Search size={15}/><input id="catalog-search" value={query} onChange={e=>setQuery(e.target.value)} placeholder="Find a tool..." aria-label="Filter tools"/><kbd>⌘ K</kbd></div><button className="toolkit" onClick={()=>navigate('discover')}><div className="toolkit-icon"><Sparkles size={17}/></div><div><strong>PR Mentor Toolkit</strong><p>Everything you need to understand, review, and improve code.</p></div><ArrowRight size={15}/></button>{navGroups.map(group=><section className="nav-group" key={group.title}><div className="nav-label">{group.title}</div>{group.items.map(([label,Icon,id])=><button key={label} className={`side-link ${page===id?'selected':''}`} onClick={()=>navigate(id)}><Icon size={16}/><span>{label}</span>{id==='saved'&&saved.length>0&&<span className="nav-count">{saved.length}</span>}</button>)}</section>)}<div className="sidebar-bottom"><div className="avatar">PM</div><div><strong>Guest workspace</strong><span>Sample data · local only</span></div><ChevronDown size={14}/></div></aside>;
-  return <div className="app-shell"><header className="topbar"><button className="mobile-menu icon-button" onClick={()=>setMobileOpen(!mobileOpen)} aria-label="Open navigation">{mobileOpen?<X size={19}/>:<Menu size={19}/>}</button><button className="brand" onClick={()=>navigate('discover')}><span className="brand-mark"><Code2 size={17}/><i/></span><span>PR <span className="brand-accent">Mentor</span></span></button><nav className="top-links"><button className={page==='discover'?'active':''} onClick={()=>navigate('discover')}>Discover</button><button onClick={()=>navigate('review-workspace')}>Pull Requests</button><button onClick={()=>navigate('review-workspace')}>Code Review</button><button onClick={()=>navigate('learning')}>Learning Hub</button><button onClick={()=>navigate('quality')}>Components</button><button onClick={()=>navigate('history')}>Resources</button></nav><div className="top-actions"><button className="global-search" onClick={()=>document.getElementById('catalog-search')?.focus()}><Search size={15}/><span>Search tools...</span><kbd>⌘ K</kbd></button><button className="sign-in" onClick={()=>{if(authIdentity){sessionStorage.removeItem('prmentor_identity');sessionStorage.removeItem('prmentor_access_token');setAuthIdentity('')}else navigate('login')}}>{authIdentity?'Sign out':'Sign in'}</button><button className="start-button" onClick={()=>navigate('review-workspace')}><Sparkles size={15}/> Start reviewing <ArrowRight size={14}/></button></div></header>
-    <div className="app-body">{mobileOpen&&<button className="drawer-backdrop" onClick={()=>setMobileOpen(false)} aria-label="Close navigation"/>}<div className={`sidebar-wrap ${mobileOpen?'drawer-open':''}`}>{sidebar}</div><main className="main-content"><AnimatePresence mode="wait"><motion.div key={page} initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-5}} transition={{duration:.2}}>{page==='login'?<AuthPage onBack={()=>navigate('discover')} onAuthenticated={(session)=>{sessionStorage.setItem('prmentor_identity',session.identity);sessionStorage.setItem('prmentor_access_token',session.access_token);setAuthIdentity(session.identity);navigate('discover')}}/>:page==='discover'?<><section className="hero"><div className="hero-copy"><div className="eyebrow"><span className="eyebrow-dot"/> AI-POWERED CODE REVIEW <span className="eyebrow-sep">·</span> BUILT FOR DEVELOPERS</div><h1>Understand the Code.<br/><span>Review With Confidence.</span></h1><p className="hero-description">Turn complex pull requests into clear explanations, actionable feedback, and learning opportunities. Find potential issues, verify findings, and understand the reasoning behind every review.</p><div className="pr-input"><Github size={19}/><input value={url} onChange={e=>{setUrl(e.target.value);setError('')}} onKeyDown={e=>e.key==='Enter'&&submit()} placeholder="Paste a GitHub pull request URL..." aria-label="GitHub pull request URL"/><button onClick={submit} disabled={busy}>{busy?<><span className="spinner"/> Analyzing</>:<>Analyze PR <ArrowRight size={15}/></>}</button></div>{error&&<div className="error-msg" role="alert">{error}<button onClick={()=>{setReview(sampleReview(url));navigate('review-workspace')}}>Open sample review</button></div>}<div className="privacy"><LockKeyhole size={13}/> Start with a public pull request. AI suggestions require verification.</div><div className="hero-points"><span><Check size={14}/> Evidence-backed findings</span><span><Check size={14}/> Beginner-friendly explanations</span><span><Check size={14}/> AI + static-analysis verification</span></div></div><FeaturePromo/></section><section className="catalog"><div className="catalog-heading"><div><div className="eyebrow small-eyebrow">YOUR REVIEW WORKSPACE</div><h2>Tools to make every review count<span>.</span></h2><p>Explore the toolkit, build your skills, and contribute with confidence.</p></div><div className="catalog-meta"><span><span className="online-dot"/> {modules.length} tools</span><span className="meta-divider"/><span>Curated for contributors</span></div></div><div className="filter-row"><div className="category-scroll">{categories.map(c=><button key={c} className={`category-pill ${category===c?'chosen':''}`} onClick={()=>setCategory(c)}>{c}</button>)}</div><div className="display-controls"><label className="sort-select"><ArrowDownUp size={14}/><select value={sort} onChange={e=>setSort(e.target.value)} aria-label="Sort tools"><option>Recommended</option><option>Recently Updated</option><option>Difficulty</option></select><ChevronDown size={13}/></label><div className="view-toggle"><button className={view==='grid'?'on':''} onClick={()=>setView('grid')} aria-label="Grid view"><LayoutGrid size={15}/></button><button className={view==='list'?'on':''} onClick={()=>setView('list')} aria-label="List view"><List size={16}/></button></div></div></div>{visible.length?<div className={`module-grid ${view==='list'?'list-view':''}`}>{visible.map((m,i)=><ModuleCard key={m.id} module={m} index={i} saved={saved.includes(m.id)} onOpen={()=>openModule(m.id)} onSave={()=>setSaved(s=>s.includes(m.id)?s.filter(x=>x!==m.id):[...s,m.id])}/>)}</div>:<div className="empty-state"><Search size={23}/><strong>No tools found</strong><p>Try another search or choose a different category.</p><button onClick={()=>{setQuery('');setCategory('All')}}>Clear filters</button></div>}</section></>:page==='review-workspace'?<ReviewWorkspace review={review} url={url} onBack={()=>navigate('discover')} onAnalyze={submit}/>:page==='diff'?<DiffModule onBack={()=>navigate('discover')}/>:page==='verification'?<VerificationModule onBack={()=>navigate('discover')}/>:page==='learning'?<LearningModule exercise={exercise} setExercise={setExercise} onBack={()=>navigate('discover')}/>:page==='saved'||page==='history'||page==='progress'?<WorkspacePage page={page} saved={saved} onOpen={openModule} onBack={()=>navigate('discover')}/>:<GenericModule page={page} onBack={()=>navigate('discover')}/>}</motion.div></AnimatePresence><footer className="footer"><span>© 2025 PR Mentor</span><span>Built for thoughtful code reviews</span><button onClick={()=>navigate('learning')}>Learning hub <ArrowRight size={13}/></button></footer></main></div></div>
+  const navigateRouter = useNavigate();
+  const location = useLocation();
+  const page = pageFromPath(location.pathname);
+  const [mobileNav, setMobileNav] = useState(false);
+  const [mobileViewport, setMobileViewport] = useState(() => window.matchMedia('(max-width: 760px)').matches);
+  const mobileMenuRef = useRef<HTMLButtonElement>(null);
+  const sidebarRef = useRef<HTMLElement>(null);
+  const [url, setUrl] = useState('');
+  const [mode, setMode] = useState<AnalysisMode>('demo');
+  const [review, setReview] = useState<ReviewResponse | null>(null);
+  const [reviewError, setReviewError] = useState('');
+  const [reviewBusy, setReviewBusy] = useState(false);
+  const [history, setHistory] = useState<ReviewResponse[]>([]);
+  const [historyState, setHistoryState] = useState<'idle' | 'loading' | 'error' | 'ready'>('idle');
+  const [historyError, setHistoryError] = useState('');
+  const [saved, setSaved] = useState<SavedPullRequest[]>([]);
+  const [savedState, setSavedState] = useState<'idle' | 'loading' | 'error' | 'ready'>('idle');
+  const [savedError, setSavedError] = useState('');
+  const [saveMessage, setSaveMessage] = useState('');
+  const [diff, setDiff] = useState<DiffFile[]>([]);
+  const [diffWarnings, setDiffWarnings] = useState<string[]>([]);
+  const [diffState, setDiffState] = useState<'idle' | 'loading' | 'error' | 'ready'>('idle');
+  const [diffError, setDiffError] = useState('');
+  const [exercises, setExercises] = useState<LearningExercise[]>([]);
+  const [learningState, setLearningState] = useState<'idle' | 'loading' | 'error' | 'ready'>('idle');
+  const [learningError, setLearningError] = useState('');
+  const [progress, setProgress] = useState<LearningProgress | null>(null);
+  const [learningHistory, setLearningHistory] = useState<LearningHistory | null>(null);
+  const [activeExercise, setActiveExercise] = useState('');
+  const [answer, setAnswer] = useState('');
+  const [answerResult, setAnswerResult] = useState<LearningResult | null>(null);
+  const [answerError, setAnswerError] = useState('');
+  const [answerBusy, setAnswerBusy] = useState(false);
+
+  const go = useCallback((next: Page) => {
+    navigateRouter(next === 'discover' ? '/' : `/${next}`);
+    setMobileNav(false);
+    if (mobileViewport) mobileMenuRef.current?.focus();
+    window.scrollTo({ top: 0, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  }, [mobileViewport, navigateRouter]);
+
+  useEffect(() => {
+    const viewport = window.matchMedia('(max-width: 760px)');
+    const updateViewport = () => setMobileViewport(viewport.matches);
+    updateViewport();
+    viewport.addEventListener('change', updateViewport);
+    return () => viewport.removeEventListener('change', updateViewport);
+  }, []);
+
+  useEffect(() => {
+    if (!mobileNav || !mobileViewport) return;
+    sidebarRef.current?.querySelector<HTMLButtonElement>('nav button')?.focus();
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setMobileNav(false);
+        mobileMenuRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [mobileNav, mobileViewport]);
+
+  const runAnalysis = async (event: FormEvent) => {
+    event.preventDefault();
+    setReviewError('');
+    if (!/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+\/?(?:[?#].*)?$/i.test(url.trim())) {
+      setReviewError('Enter a public GitHub pull request URL, such as https://github.com/owner/repo/pull/42.');
+      return;
+    }
+    setReviewBusy(true);
+    setReview(null);
+    try {
+      const result = await analyzePullRequest(url.trim(), mode);
+      setReview(result);
+      go('review');
+    } catch (error) {
+      setReviewError(error instanceof Error ? error.message : 'The review could not be loaded.');
+    } finally {
+      setReviewBusy(false);
+    }
+  };
+
+  const openReview = async (reviewId: string) => {
+    setReviewError('');
+    setReviewBusy(true);
+    try {
+      const result = await getReview(reviewId);
+      setReview(result);
+      setUrl(result.pull_request.pull_request_url);
+      setMode(result.analysis_mode);
+      go('review');
+    } catch (error) {
+      setReview(null);
+      setReviewError(error instanceof Error ? error.message : 'This review is unavailable.');
+      go('review');
+    } finally {
+      setReviewBusy(false);
+    }
+  };
+
+  const refreshSaved = useCallback(async () => {
+    setSavedState('loading'); setSavedError('');
+    try { setSaved(await getSavedPullRequests()); setSavedState('ready'); }
+    catch (error) { setSavedError(error instanceof Error ? error.message : 'Saved pull requests are unavailable.'); setSavedState('error'); }
+  }, []);
+
+  useEffect(() => {
+    if (page === 'history') {
+      setHistoryState('loading'); setHistoryError('');
+      getReviewHistory().then((items) => { setHistory(items); setHistoryState('ready'); })
+        .catch((error: unknown) => { setHistoryError(error instanceof Error ? error.message : 'Review history is unavailable.'); setHistoryState('error'); });
+    }
+    if (page === 'saved') void refreshSaved();
+    if (page === 'diff') {
+      if (!review?.review_id) { setDiff([]); setDiffState('ready'); setDiffWarnings([]); return; }
+      setDiffState('loading'); setDiffError('');
+      getReviewDiff(review.review_id).then((result) => { setDiff(result.files); setDiffWarnings(result.warnings); setDiffState('ready'); })
+        .catch((error: unknown) => { setDiffError(error instanceof Error ? error.message : 'The stored diff is unavailable.'); setDiffState('error'); });
+    }
+    if (page === 'learning') {
+      setLearningState('loading'); setLearningError('');
+      Promise.all([getLearningExercises(), getLearningProgress(), getLearningHistory()])
+        .then(([items, nextProgress, attempts]) => {
+          setExercises(items); setProgress(nextProgress); setLearningHistory(attempts);
+          setActiveExercise((current) => current && items.some((item) => item.id === current) ? current : items[0]?.id ?? '');
+          setLearningState('ready');
+        })
+        .catch((error: unknown) => { setLearningError(error instanceof Error ? error.message : 'Learning exercises are unavailable.'); setLearningState('error'); });
+    }
+  }, [page, refreshSaved, review?.review_id]);
+
+  const saveCurrent = async () => {
+    if (!review?.pull_request.pull_request_url) return;
+    setSaveMessage('');
+    try {
+      await savePullRequest(review.pull_request.pull_request_url);
+      setSaveMessage('Pull request saved in backend storage.');
+    } catch (error) { setSaveMessage(error instanceof Error ? error.message : 'Could not save this pull request.'); }
+  };
+
+  const removeSaved = async (item: SavedPullRequest) => {
+    try { await deleteSavedPullRequest(item.saved_id); await refreshSaved(); }
+    catch (error) { setSavedError(error instanceof Error ? error.message : 'Could not remove the saved pull request.'); }
+  };
+
+  const selectSaved = (item: SavedPullRequest) => { setUrl(item.url); setMode('live'); go('discover'); };
+
+  const submitAnswer = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!activeExercise || !answer.trim()) return;
+    setAnswerBusy(true); setAnswerError(''); setAnswerResult(null);
+    try {
+      const result = await submitExercise(activeExercise, answer);
+      setAnswerResult(result); setProgress(result.progress); setAnswer('');
+      try { setLearningHistory(await getLearningHistory()); }
+      catch { /* The accepted answer remains visible if only the history refresh fails. */ }
+    } catch (error) { setAnswerError(error instanceof Error ? error.message : 'Your answer could not be submitted.'); }
+    finally { setAnswerBusy(false); }
+  };
+
+  const activeExerciseData = exercises.find((item) => item.id === activeExercise);
+  const activeTitle = useMemo(() => ({ discover: 'Discover', review: 'Review workspace', history: 'Recent reviews', saved: 'Saved pull requests', diff: 'Pull request diff', learning: 'Learning lab' }[page]), [page]);
+
+  return (
+    <div className="app-shell">
+      <header className="topbar">
+        <button ref={mobileMenuRef} className="mobile-menu icon-button" type="button" onClick={() => setMobileNav((open) => !open)} aria-label={mobileNav ? 'Close navigation' : 'Open navigation'} aria-expanded={mobileNav} aria-controls="main-navigation">
+          {mobileNav ? <X size={19}/> : <Menu size={19}/>}
+        </button>
+        <button className="brand" type="button" onClick={() => go('discover')} aria-label="PR Mentor home">
+          <span className="brand-mark"><Code2 size={17}/><i/></span><span>PR <b>Mentor</b></span>
+        </button>
+        <div className="top-context"><span>PR REVIEW WORKSPACE</span><ChevronRight size={13}/><strong>{activeTitle}</strong></div>
+        <a className="top-github" href="https://github.com/MAANDUBEY07/PR_MENTOR" target="_blank" rel="noreferrer"><Code2 size={16}/><span>Project</span><ExternalLink size={12}/></a>
+      </header>
+      {mobileNav && <button className="drawer-backdrop" type="button" onClick={() => { setMobileNav(false); mobileMenuRef.current?.focus(); }} aria-label="Close navigation"/>}
+      <div className={`app-body ${mobileNav ? 'nav-open' : ''}`}>
+        <aside ref={sidebarRef} id="main-navigation" className="sidebar" aria-label="Main navigation" aria-hidden={mobileViewport && !mobileNav} inert={mobileViewport && !mobileNav}>
+          <div className="sidebar-label">WORKSPACE</div>
+          <nav className="side-nav">
+            {nav.map(({ id, label, icon: Icon }) => <button key={id} type="button" className={`side-link ${page === id ? 'selected' : ''}`} aria-current={page === id ? 'page' : undefined} onClick={() => go(id)}><Icon size={17}/><span>{label}</span>{id === 'history' && history.length > 0 && <small>{history.length}</small>}</button>)}
+          </nav>
+          <div className="sidebar-note"><div className="note-icon"><ShieldCheck size={16}/></div><strong>Evidence first</strong><p>AI suggestions need a human review. Static analyzer output is shown with its source.</p></div>
+          <div className="sidebar-bottom"><span className="guest-avatar">PM</span><span><strong>Guest workspace</strong><small>Backend-stored data</small></span><Activity size={15}/></div>
+        </aside>
+
+        <main className="main-content">
+          {page === 'discover' && <section className="discover-page">
+            <div className="hero-kicker"><span className="kicker-line"/> PULL REQUESTS, MADE CLEAR <span className="kicker-index">01 / REVIEW</span></div>
+            <h1>Understand the Code.<br/><span>Review With Confidence.</span></h1>
+            <p className="hero-description">A thoughtful workspace for reading changes, weighing evidence, and learning what deserves a closer look.</p>
+            <div className="review-entry">
+              <div className="entry-heading"><div><span className="section-index">01</span><strong>Start with a pull request</strong></div><span>PUBLIC GITHUB URL</span></div>
+              <form onSubmit={runAnalysis}>
+                <label className="url-label" htmlFor="pr-url">Pull request URL</label>
+                <div className="url-field"><Code2 size={18}/><input id="pr-url" type="url" value={url} onChange={(event) => { setUrl(event.target.value); setReviewError(''); }} placeholder="https://github.com/owner/repository/pull/42" autoComplete="url"/><button className="analyze-button" type="submit" disabled={reviewBusy}>{reviewBusy ? <><LoaderCircle className="spin" size={16}/> Analyzing</> : <>Analyze PR <ArrowRight size={16}/></>}</button></div>
+                <fieldset className="mode-select"><legend>Choose review mode <span>Required</span></legend><label className={`mode-option ${mode === 'demo' ? 'chosen' : ''}`}><input type="radio" name="mode" value="demo" checked={mode === 'demo'} onChange={() => setMode('demo')}/><span className="radio-mark"/><span><strong>Demo</strong><small>Fictional educational findings, clearly labeled</small></span><Sparkles size={15}/></label><label className={`mode-option ${mode === 'live' ? 'chosen' : ''}`}><input type="radio" name="mode" value="live" checked={mode === 'live'} onChange={() => setMode('live')}/><span className="radio-mark"/><span><strong>Live analysis</strong><small>Fetch public PR details and available Python checks</small></span><GitPullRequest size={15}/></label></fieldset>
+                {reviewError && <div className="alert error-alert" role="alert"><CircleAlert size={16}/><span>{reviewError}</span></div>}
+              </form>
+              <div className="entry-foot"><span><ShieldCheck size={14}/> Submitted code is not executed.</span><span>Live analysis depends on GitHub access and installed analyzers.</span></div>
+            </div>
+            <div className="section-rule"><span>THE REVIEW PRACTICE</span><i/></div>
+            <section className="principles" aria-label="Review principles">
+              <article><span className="principle-no">01</span><div><h2>Read the change</h2><p>Review the actual pull request metadata and diff returned by the service.</p></div><FileCode2 size={19}/></article>
+              <article><span className="principle-no">02</span><div><h2>Separate signal from certainty</h2><p>See whether a finding came from a static analyzer or an AI candidate needing review.</p></div><ShieldCheck size={19}/></article>
+              <article><span className="principle-no">03</span><div><h2>Build the habit</h2><p>Practice with the learning exercises served by the backend.</p></div><BookOpen size={19}/></article>
+            </section>
+            <div className="notice-strip"><span className="notice-mark">i</span><p>Reviews, saved links, and exercise progress are stored by the backend. Retention depends on its configured storage.</p></div>
+          </section>}
+
+          {page === 'review' && <ReviewPage review={review} busy={reviewBusy} error={reviewError} onRetry={() => go('discover')} onSave={saveCurrent} saveMessage={saveMessage} onDiff={() => go('diff')}/>}
+          {page === 'history' && <HistoryPage state={historyState} error={historyError} items={history} onOpen={openReview} onDiscover={() => go('discover')}/>}
+          {page === 'saved' && <SavedPage state={savedState} error={savedError} items={saved} onRemove={removeSaved} onSelect={selectSaved} onRefresh={() => void refreshSaved()} onDiscover={() => go('discover')}/>}
+          {page === 'diff' && <DiffPage review={review} state={diffState} error={diffError} files={diff} warnings={diffWarnings} onBack={() => go('review')} onDiscover={() => go('discover')}/>}
+          {page === 'learning' && <LearningPage state={learningState} error={learningError} exercises={exercises} active={activeExerciseData} setActive={(id) => { setActiveExercise(id); setAnswer(''); setAnswerResult(null); setAnswerError(''); }} answer={answer} setAnswer={setAnswer} result={answerResult} answerError={answerError} busy={answerBusy} progress={progress} history={learningHistory} onSubmit={submitAnswer}/>}
+          <footer className="footer"><span>PR Mentor <i>·</i> Review with care.</span><span>API data is shown as returned; unavailable services are labeled.</span></footer>
+        </main>
+      </div>
+    </div>
+  );
 }
 
-function AuthPage({onBack,onAuthenticated}:{onBack:()=>void;onAuthenticated:(session:AuthSession)=>void}) {
-  const [method,setMethod]=useState<'email'|'phone'>('email'); const [identifier,setIdentifier]=useState(''); const [code,setCode]=useState(''); const [challenge,setChallenge]=useState<OtpChallenge|null>(null); const [demoCode,setDemoCode]=useState(''); const [seconds,setSeconds]=useState(0); const [busy,setBusy]=useState(false); const [error,setError]=useState('');
-  useEffect(()=>{if(!challenge||seconds<=0)return;const timer=window.setInterval(()=>setSeconds(value=>Math.max(0,value-1)),1000);return()=>window.clearInterval(timer)},[challenge,seconds>0]);
-  const requestCode=async()=>{setError('');if(method==='email'&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier.trim())){setError('Enter a valid email address.');return}if(method==='phone'&&!/^\+[1-9]\d{7,14}$/.test(identifier.replace(/[\s()-]/g,''))){setError('Enter your number with country code, e.g. +14155550123.');return}setBusy(true);try{const result=await sendLoginOtp(method,identifier.trim());setChallenge(result);setDemoCode(result.demo_otp??'');setSeconds(result.expires_in);setCode('')}catch(e){setError(e instanceof Error?e.message:'Could not send a sign-in code.')}finally{setBusy(false)}};
-  const confirmCode=async()=>{if(!challenge)return;setError('');if(!/^\d{6}$/.test(code)){setError('Enter the 6-digit code.');return}setBusy(true);try{const session=await verifyLoginOtp(challenge.challenge_id,code);onAuthenticated(session)}catch(e){setError(e instanceof Error?e.message:'Could not verify that code.')}finally{setBusy(false)}};
-  return <section className="auth-page"><button className="back-link" onClick={onBack}><ArrowLeft size={15}/> Back to PR Mentor</button><div className="auth-card"><div className="auth-brand"><span className="brand-mark"><Code2 size={17}/></span><span>PR <b>Mentor</b></span></div><div className="auth-icon"><KeyRound size={20}/></div><h1>{challenge?'Check your code':'Welcome back'}</h1><p className="auth-subtitle">{challenge?<>We sent a one-time code to <strong>{identifier}</strong>.</>:'Sign in or create an account with a one-time code.'}</p>{!challenge?<><div className="auth-methods"><button className={method==='email'?'selected':''} onClick={()=>{setMethod('email');setError('')}}><Mail size={15}/> Email</button><button className={method==='phone'?'selected':''} onClick={()=>{setMethod('phone');setError('')}}><Phone size={15}/> Phone</button></div><label className="auth-label">{method==='email'?'Email address':'Phone number'}</label><div className="auth-input"><span>{method==='email'?<Mail size={16}/>:<Phone size={16}/>}</span><input type={method==='email'?'email':'tel'} value={identifier} onChange={e=>setIdentifier(e.target.value)} onKeyDown={e=>e.key==='Enter'&&requestCode()} placeholder={method==='email'?'you@example.com':'+1 415 555 0123'} autoComplete={method==='email'?'email':'tel'} /></div><button className="auth-submit" onClick={requestCode} disabled={busy}>{busy?'Sending code…':'Send sign-in code'} <ArrowRight size={15}/></button></>:<><label className="auth-label">6-digit verification code</label><div className="auth-input otp-input"><span><KeyRound size={16}/></span><input inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={e=>setCode(e.target.value.replace(/\D/g,'').slice(0,6))} onKeyDown={e=>e.key==='Enter'&&confirmCode()} placeholder="000000" /></div><div className="otp-expiry">Code expires in {Math.floor(seconds/60)}:{String(seconds%60).padStart(2,'0')}</div>{demoCode&&<div className="demo-code"><span>LOCAL DEMO CODE</span><strong>{demoCode}</strong><small>No email or text message was sent. Configure an OTP provider for real delivery.</small></div>}<button className="auth-submit" onClick={confirmCode} disabled={busy}>{busy?'Verifying…':'Verify and sign in'} <ArrowRight size={15}/></button><button className="resend-code" onClick={requestCode} disabled={busy||seconds>270}>{seconds>270?'Code sent':'Resend code'} {seconds>270&&<span>in {seconds-270}s</span>}</button><button className="change-identity" onClick={()=>{setChallenge(null);setDemoCode('');setError('')}}>Use a different {method==='email'?'email':'phone number'}</button></>}{error&&<div className="auth-error" role="alert">{error}</div>}<div className="auth-footnote"><LockKeyhole size={13}/> One-time codes expire after 5 minutes.</div></div><p className="auth-legal">By continuing, you agree to PR Mentor’s terms and privacy policy.</p></section>
+function ReviewPage({ review, busy, error, onRetry, onSave, saveMessage, onDiff }: { review: ReviewResponse | null; busy: boolean; error: string; onRetry: () => void; onSave: () => void; saveMessage: string; onDiff: () => void }) {
+  if (busy) return <LoadingState title="Loading review" detail="Waiting for the PR Mentor API."/>;
+  if (error && !review) return <ErrorState title="Review unavailable" message={error} action="Back to analysis" onAction={onRetry}/>;
+  if (!review) return <EmptyState icon={<GitPullRequest size={22}/>} title="No review loaded" detail="Analyze a pull request in demo or live mode to open a review workspace." action="Analyze a PR" onAction={onRetry}/>;
+  const pr = review.pull_request;
+  const isDemo = review.is_demo || review.analysis_mode === 'demo';
+  return <section className="content-page review-page">
+    <div className="page-heading"><div><div className="eyebrow">REVIEW WORKSPACE <span className={`mode-badge ${isDemo ? 'demo' : 'live'}`}>{isDemo ? 'DEMO REVIEW' : 'LIVE REVIEW'}</span></div><h1>{pr.title || 'Pull request review'}</h1><p>{review.summary}</p></div><div className="heading-actions"><button type="button" className="secondary-button" onClick={onSave}><Bookmark size={15}/> Save PR</button><button type="button" className="primary-button" onClick={onDiff}>View diff <ArrowRight size={15}/></button></div></div>
+    {saveMessage && <div className="inline-message" role="status">{saveMessage}</div>}
+    <div className="pr-overview"><div className="repo-emblem"><Code2 size={21}/></div><div className="pr-ident"><a href={pr.pull_request_url} target="_blank" rel="noreferrer">{pr.repository_owner}/{pr.repository_name} <ExternalLink size={13}/></a><span>#{pr.pull_request_number} · {pr.state} · by {pr.author}</span></div><div className="pr-branches"><span>{pr.head_branch}</span><ArrowRight size={13}/><span>{pr.base_branch}</span></div><div className="pr-changes"><strong>+{pr.additions}</strong><strong>−{pr.deletions}</strong><span>{pr.changed_files} files</span></div></div>
+    {isDemo && <div className="alert demo-alert"><Sparkles size={17}/><span><strong>Illustrative demo data.</strong> These findings do not describe the submitted pull request. No repository code was analyzed.</span></div>}
+    {!isDemo && <div className="alert live-alert"><ShieldCheck size={17}/><span>Live PR metadata and available checks. Submitted code was not executed; analyzer and AI availability is listed below.</span></div>}
+    {review.warnings.length > 0 && <div className="warning-list" aria-label="Review warnings">{review.warnings.map((warning, index) => <div key={`${index}-${warning}`}><CircleAlert size={15}/>{warning}</div>)}</div>}
+    <div className="review-summary"><div><span>FINDINGS</span><strong>{review.findings.length}</strong></div><div><span>VERIFIED</span><strong>{review.verification_summary.verified ?? 0}</strong></div><div><span>NEEDS REVIEW</span><strong>{review.verification_summary.needs_review ?? 0}</strong></div><div><span>UNSUPPORTED</span><strong>{review.verification_summary.unsupported ?? 0}</strong></div></div>
+    <div className="results-heading"><div><span className="section-index">02</span><div><h2>Findings & evidence</h2><p>{review.findings.length ? 'Each item retains its source and verification status.' : 'No findings were returned for this review.'}</p></div></div><span>{review.findings.length} TOTAL</span></div>
+    {review.findings.length ? <div className="finding-list">{review.findings.map((finding) => <Finding key={finding.id} finding={finding}/>)}</div> : <div className="empty-inline"><CheckCircle2 size={18}/><span>No findings were returned. Check the tool results and warnings before treating this as a clean bill of health.</span></div>}
+    <section className="tool-results"><div className="results-heading compact"><div><span className="section-index">03</span><div><h2>Analysis tools</h2><p>Backend-reported status; this is not a test-run summary.</p></div></div></div>{review.tool_results.length ? <div className="tool-table">{review.tool_results.map((tool, index) => <div className="tool-row" key={`${tool.tool}-${index}`}><span className="tool-name">{tool.tool}</span><span className={`tool-status status-${tool.status.replace(/[^a-z]/gi, '-').toLowerCase()}`}>{pretty(tool.status)}</span><span>{tool.reason ?? tool.message ?? (tool.findings ? `${tool.findings.length} diagnostics` : tool.executed === false ? 'Submitted code not executed' : 'Status returned by API')}</span></div>)}</div> : <div className="empty-inline">No tool status was returned.</div>}</section>
+    <div className="review-meta"><span>Created {formatDate(review.created_at)}</span><span>{review.duration_ms} ms reported</span><span>Review ID <code>{review.review_id}</code></span></div>
+  </section>;
 }
 
-function FeaturePromo(){return <div className="promo-card"><div className="promo-glow"/><div className="promo-top"><span className="promo-badge"><Sparkles size={12}/> MEET YOUR AI REVIEW PARTNER</span><span className="scan-status"><i/> SCANNING</span></div><h2>Better reviews.<br/><span>Better developers.</span></h2><p>Understand potential bugs, verify findings, and learn why code changes matter.</p><div className="code-preview"><div className="code-window-top"><span/><span/><span/><small>metrics.py <ChevronDown size={11}/></small><span className="diff-count">+3 −1</span></div><div className="code-row removed"><b>−</b><code>return total / len(values)</code></div><div className="code-row added"><b>+</b><code>if not values: return 0</code></div><div className="code-row added"><b>+</b><code>return total / len(values)</code></div><div className="scan-line"/></div><div className="promo-footer"><span><span className="pulse-dot"/> Evidence before confidence.</span><ArrowRight size={15}/></div></div>}
+function Finding({ finding }: { finding: ReviewFinding }) {
+  const statusCopy: Record<string, string> = { verified: 'Verified against analyzer evidence', needs_review: 'Needs human review', unsupported: 'Unsupported by available evidence' };
+  const sourceCopy: Record<string, string> = { static_analysis: 'Static analyzer', ai_candidate: 'AI candidate', test_evidence: 'Test evidence', combined: 'Combined evidence', demo: 'Demo sample' };
+  return <article className="finding-card"><div className="finding-rail"><SeverityBadge severity={finding.severity}/><span className={`verification-badge verify-${finding.verification_status}`}><span/>{statusCopy[finding.verification_status] ?? pretty(finding.verification_status)}</span></div><div className="finding-main"><div className="finding-title-row"><h3>{finding.title}</h3><span className="source-label">{sourceCopy[finding.source] ?? pretty(finding.source)}</span></div><p className="finding-description">{finding.description}</p><div className="finding-location"><FileCode2 size={14}/><code>{finding.file_path}</code><span>{finding.line_start ? `Line ${finding.line_start}${finding.line_end && finding.line_end !== finding.line_start ? `–${finding.line_end}` : ''}` : 'Line unavailable'}</span><span>{pretty(finding.category)}</span><span>{Math.round(finding.confidence * 100)}% confidence</span></div>
+    <details className="finding-evidence"><summary><ShieldCheck size={14}/> Evidence and context <ChevronRight size={14}/></summary><div><h4>Evidence</h4>{finding.evidence.length ? <ul>{finding.evidence.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul> : <p>No evidence was returned.</p>}<h4>Why it matters</h4><p>{finding.why_it_matters || 'No explanation was provided.'}</p><h4>Suggested next step</h4><p>{finding.suggested_fix || 'No suggested fix was provided.'}</p>{finding.learning_explanation && <><h4>Learning note</h4><p>{finding.learning_explanation}</p></>}{finding.limitations.length > 0 && <><h4>Limitations</h4><ul>{finding.limitations.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul></>}</div></details>
+  </div></article>;
+}
 
-function ModuleCard({module:m,index,saved,onOpen,onSave}:{module:Module;index:number;saved:boolean;onOpen:()=>void;onSave:()=>void}){const Icon=m.icon;return <motion.article className="module-card" initial={{opacity:0,y:12}} animate={{opacity:1,y:0}} transition={{duration:.25,delay:Math.min(index*.035,.2)}} whileHover={{y:-3}}><button className="save-card" onClick={onSave} aria-label={saved?'Remove from saved':'Save tool'}><Bookmark size={15} fill={saved?'currentColor':'none'}/></button><button className={`module-visual ${m.visual}`} onClick={onOpen} aria-label={`Open ${m.title}`}><Visual id={m.visual}/></button><div className="module-content"><div className="module-kicker"><span className="kicker-icon"><Icon size={13}/></span>{m.category}</div><button className="module-title" onClick={onOpen}>{m.title}</button><p>{m.description}</p><div className="tag-row">{m.tags.slice(0,3).map(tag=><span key={tag}>{tag}</span>)}</div><div className="module-bottom"><span className={`difficulty ${m.level.toLowerCase()}`}><i/>{m.level}</span><button className="card-action" onClick={onOpen}>{m.action}<ArrowRight size={14}/></button></div></div></motion.article>}
-function Visual({id}:{id:string}){if(id==='diff')return <div className="visual-diff"><div className="mini-file"><FileCode2 size={13}/> <span>parser.py</span><i>2 changes</i></div><code><span className="line-no">12</span><span className="code-green">+ parsed = urlparse(link)</span></code><code><span className="line-no">13</span><span className="code-red">− return link.split("/")[-1]</span></code><code><span className="line-no">14</span> return parsed.path</code></div>;if(id==='verify')return <div className="visual-verification"><div className="verify-score"><div className="score-ring">2<span>/2</span></div><div><strong>Findings checked</strong><small>Evidence is ready</small></div></div><div className="verify-list"><span><CheckCircle2 size={13}/> Ruff · F821</span><span><CheckCircle2 size={13}/> Tests · 12 passed</span></div></div>;if(id==='security')return <div className="visual-security"><div className="terminal-head"><span/><span/><span/><small>security scan</small></div><div className="security-code"><code><i>01</i> password = os.getenv(</code><code><i>02</i> &nbsp; "DB_PASSWORD")</code><div className="security-result"><ShieldCheck size={14}/> Secret handling checked <Check size={13}/></div></div></div>;if(id==='learn')return <div className="visual-learn"><div className="lesson-top"><span>REVIEW EXERCISE · 02</span><span>2 / 5</span></div><div className="lesson-question">What could happen if <code>items</code> is empty?</div><div className="lesson-answer"><span>A</span> The loop runs forever</div><div className="lesson-answer selected-answer"><span>B</span> Division by zero <Check size={12}/></div></div>;if(id==='health')return <div className="visual-health"><div className="health-title"><Github size={13}/> acme / metrics <span>#42</span></div><div className="health-stats"><div><strong>2</strong><small>findings</small></div><div><strong>12</strong><small>checks passed</small></div><div className="health-good"><CheckCircle2 size={14}/><small>Ready to review</small></div></div><div className="health-meter"><i/></div></div>;if(id==='quality')return <div className="visual-quality"><div className="quality-score"><span>Maintainability</span><strong>Good <small>82</small></strong></div><div className="bar-set"><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/></div><div className="quality-foot"><span><span/> Complexity</span><b>Low</b></div><div className="quality-foot"><span><span/> Duplication</span><b>2.1%</b></div></div>;if(id==='history')return <div className="visual-history"><div className="history-chart"><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/></div><div className="history-timeline"><span/><div><strong>Review confidence</strong><small>Trending up over 4 weeks</small></div><b>+18%</b></div></div>;return <div className="visual-review"><div className="review-window"><div className="review-window-head"><span><Github size={13}/> acme / metrics</span><span className="pr-open">OPEN</span></div><div className="review-summary"><div><strong>2</strong><small>findings</small></div><i/><div><strong>12</strong><small>checks passed</small></div></div><div className="finding-mini"><span><Bug size={12}/> Potential edge case</span><span className="severity-high">HIGH</span></div><div className="review-bottom"><span><CheckCircle2 size={12}/> Verified with evidence</span><ArrowRight size={12}/></div></div><div className="visual-spark"><Sparkles size={15}/></div></div>}
-function ReviewWorkspace({review,url,onBack,onAnalyze}:{review:ReviewResponse|null;url:string;onBack:()=>void;onAnalyze:()=>void}){const data=review??sampleReview(url);const [filter,setFilter]=useState('All findings');const [selected,setSelected]=useState(0);const list=data.findings?.length?data.findings:findings;return <section className="workspace-page"><button className="back-link" onClick={onBack}><ArrowLeft size={15}/> Back to discover</button><div className="workspace-title-row"><div><div className="eyebrow small-eyebrow">REVIEW WORKSPACE <span className="sample-badge">SAMPLE DATA</span></div><h1>Review with context.</h1><p>Explore the changes, inspect evidence, and decide what deserves your attention.</p></div><button className="outline-button" onClick={onAnalyze}><Plus size={15}/> Analyze another PR</button></div><div className="repo-bar"><div className="repo-icon"><Github size={19}/></div><div><strong>{data.repository??'acme / metrics'}</strong><span>{data.pull_request_title??'Handle empty input in average calculation'} <b>#{data.pull_request_number??42}</b></span></div><span className="open-badge"><i/> Open</span><a href={url||'#'} target="_blank" rel="noreferrer">View on GitHub <ExternalLink size={13}/></a></div><div className="review-disclaimer"><Sparkles size={15}/><span><strong>Sample review for demonstration.</strong> Findings are example data, not model output. Always verify AI suggestions before acting.</span></div><div className="review-layout"><aside className="files-panel"><div className="panel-heading"><span>CHANGED FILES</span><span>2</span></div><button className="file-item selected"><FileCode2 size={14}/><span>src/metrics.py</span><b>2</b></button><button className="file-item"><FileCode2 size={14}/><span>tests/test_metrics.py</span><b>1</b></button><div className="files-summary"><span><i className="add-dot"/> 8 additions</span><span><i className="del-dot"/> 2 deletions</span></div></aside><section className="diff-panel"><div className="panel-heading"><span><FileCode2 size={14}/> src/metrics.py</span><button className="diff-mode">Unified diff <ChevronDown size={13}/></button></div><div className="diff-code"><div className="diff-hunk">@@ -14,3 +14,7 @@ def average(values: list[float]) -</div><div className="diff-line"><i>14</i><i>14</i><code>def average(values: list[float]) -&gt; float:</code></div><div className="diff-line removed-line"><i>15</i><i/><code>    return sum(values) / len(values)</code></div><div className="diff-line added-line"><i/><i>15</i><code>    if not values:</code></div><div className="diff-line added-line"><i/><i>16</i><code>        return 0.0</code></div><div className="diff-line added-line"><i/><i>17</i><code>    return sum(values) / len(values)</code></div><div className="diff-line"><i>18</i><i>18</i><code></code></div><div className="diff-line"><i>19</i><i>19</i><code>def median(values: list[float]) -&gt; float:</code></div></div><div className="diff-note"><CircleHelp size={14}/><span>Click a finding to see its explanation and supporting evidence.</span></div></section><aside className="findings-panel"><div className="findings-heading"><div><span className="panel-kicker">REVIEW FINDINGS</span><strong>{list.length} <small>to look at</small></strong></div><label><Filter size={13}/><select value={filter} onChange={e=>setFilter(e.target.value)}><option>All findings</option><option>High</option><option>Medium</option><option>Low</option></select></label></div><div className="finding-tabs">{['All','High','Medium'].map(level=><button key={level} className={filter===level?'tab-active':''} onClick={()=>setFilter(level==='All'?'All findings':level)}>{level}<span>{level==='All'?list.length:list.filter((f:any)=>f.severity===level).length}</span></button>)}</div>{list.map((finding:any,i:number)=>({finding,i})).filter(({finding})=>filter==='All findings'||finding.severity===filter).map(({finding,i})=><button key={finding.title} className={`finding-item ${selected===i?'finding-selected':''}`} onClick={()=>setSelected(i)}><span className={`severity-pill ${String(finding.severity).toLowerCase()}`}><i/>{finding.severity}</span><strong>{finding.title}</strong><small><FileCode2 size={12}/> {finding.file??'src/metrics.py'}:{finding.line??18}</small></button>)}{list[selected]&&<div className="finding-detail"><div className="detail-heading"><span>WHY THIS MATTERS</span><button onClick={()=>setSelected(-1)}><X size={14}/></button></div><p>{list[selected]?.text??'Review this change in context and confirm whether it is relevant to your use case.'}</p><div className="evidence-box"><span><ShieldCheck size={13}/> VERIFICATION EVIDENCE</span><p>{list[selected]?.proof??'Example static analysis and test output for this sample PR.'}</p><span className="verification-state"><CheckCircle2 size={12}/> {list[selected]?.status??'Sample evidence'}</span></div><button className="learn-why" onClick={()=>{document.getElementById('learning-note')?.scrollIntoView({behavior:'smooth'})}}><BookOpen size={14}/> Why does this matter? <ArrowRight size={13}/></button></div>}</aside></div><div id="learning-note" className="learning-note"><BookOpen size={16}/><div><strong>A moment to learn</strong><p>When a function divides by a collection's length, think about the empty case. A simple guard makes behavior explicit and prevents a runtime error.</p></div><button onClick={onBack}>Explore learning tools <ArrowRight size={13}/></button></div></section>}
-function DiffModule({onBack}:{onBack:()=>void}){return <section className="module-page"><Back onBack={onBack} label="DIFF EXPLORER" title="Every change has a story." subtitle="Read a pull request one thoughtful change at a time."/><div className="diff-demo panel"><div className="panel-heading"><span><FileCode2 size={14}/> src/cart.py</span><span>3 changes · +8 −2</span></div><div className="diff-code"><div className="diff-hunk">@@ -22,4 +22,10 @@ def total(items):</div><div className="diff-line"><i>22</i><i>22</i><code>def total(items):</code></div><div className="diff-line removed-line"><i>23</i><i/><code>    return sum(item.price for item in items)</code></div><div className="diff-line added-line"><i/><i>23</i><code>    if not items:</code></div><div className="diff-line added-line"><i/><i>24</i><code>        return 0.0</code></div><div className="diff-line added-line"><i/><i>25</i><code>    return sum(item.price for item in items)</code></div></div><div className="learning-note"><CircleHelp size={16}/><div><strong>Why this change?</strong><p>The guard defines what the function returns when a cart has no items. This avoids unexpected behavior for an empty collection.</p></div></div></div></section>}
-function VerificationModule({onBack}:{onBack:()=>void}){return <section className="module-page"><Back onBack={onBack} label="ISSUE VERIFICATION" title="Evidence belongs in every review." subtitle="Example findings are paired with concrete checks so you can see what supports a claim."/><div className="verification-page-card panel"><div className="verify-overview"><div className="big-check"><ShieldCheck size={27}/></div><div><span className="panel-kicker">SAMPLE VERIFICATION RUN</span><h3>2 findings · 1 verified · 1 needs review</h3><p>Demonstration evidence only. No analysis has been run for your repository.</p></div></div>{findings.map((f,i)=><div className="verification-finding" key={f.title}><div className="verif-status"><CheckCircle2 size={17}/><span>{i===0?'Verified':'Needs review'}</span></div><div><span className={`severity-pill ${f.severity.toLowerCase()}`}><i/>{f.severity}</span><strong>{f.title}</strong><p>{f.proof}</p></div></div>)}</div></section>}
-function LearningModule({exercise,setExercise,onBack}:{exercise:number;setExercise:(x:number)=>void;onBack:()=>void}){const [answer,setAnswer]=useState('');return <section className="module-page"><Back onBack={onBack} label="LEARNING HUB" title="Get better with every review." subtitle="Short, practical exercises build the habits that make code reviews useful."/><div className="exercise-card panel"><div className="exercise-head"><span>GUIDED REVIEW · EXERCISE {exercise+1} OF 3</span><span>{Math.round((exercise+1)/3*100)}% complete</span></div><div className="progress-track"><i style={{width:`${(exercise+1)/3*100}%`}}/></div><span className="exercise-topic">EDGE CASES <span>· 3 MIN</span></span><h2>What happens when the input is empty?</h2><p className="exercise-intro">A teammate adds this function. What should you check first?</p><div className="exercise-code"><code><span>1</span> def average(values):</code><code><span>2</span> &nbsp; &nbsp;return sum(values) / len(values)</code></div><div className="answer-options">{['The loop might run forever','Division by zero when values is empty','The function returns a string'].map((a,i)=><button key={a} className={answer===a?'answer-choice selected':''} onClick={()=>setAnswer(a)}><span>{String.fromCharCode(65+i)}</span>{a}{answer===a&&<Check size={15}/>}</button>)}</div>{answer&&<div className={`answer-feedback ${answer.includes('Division')?'correct':'incorrect'}`}>{answer.includes('Division')?<><CheckCircle2 size={16}/><span><strong>Exactly right.</strong> An empty list has length zero, so the division fails. Ask whether the caller can send an empty list and what the expected result should be.</span></>:<><CircleHelp size={16}/><span><strong>Not quite.</strong> Think about the denominator. What is <code>len([])</code>?</span></>}</div>}<div className="exercise-actions"><button className="outline-button" onClick={()=>setAnswer('')}><CircleHelp size={14}/> Show a hint</button><button className="start-button" onClick={()=>{setExercise((exercise+1)%3);setAnswer('')}}>Next exercise <ArrowRight size={14}/></button></div></div></section>}
-function WorkspacePage({page,saved,onOpen,onBack}:{page:string;saved:string[];onOpen:(id:string)=>void;onBack:()=>void}){const title=page==='saved'?'Saved for later':page==='progress'?'Your learning progress':'Recent reviews';const selected=page==='saved'?modules.filter(m=>saved.includes(m.id)):page==='history'?modules.filter(m=>['reviewer','verification','diff'].includes(m.id)):[];return <section className="module-page"><Back onBack={onBack} label={page==='saved'?'YOUR WORKSPACE':page==='progress'?'LEARNING':'REVIEW HISTORY'} title={title} subtitle={page==='progress'?'Small steps add up. Keep building your review confidence.':'Keep the tools and reviews you want to return to close at hand.'}/>{page==='progress'?<div className="progress-grid"><div className="progress-card panel"><span className="panel-kicker">REVIEWS COMPLETED</span><strong>12</strong><span className="trend"><Activity size={14}/> 4 this week</span></div><div className="progress-card panel"><span className="panel-kicker">SKILLS PRACTICED</span><strong>6</strong><span className="trend"><GraduationCap size={14}/> Edge cases · Testing · Security</span></div><div className="progress-card panel"><span className="panel-kicker">REVIEW CONFIDENCE</span><strong>Growing <span className="confidence-arrow">↗</span></strong><div className="health-meter"><i/></div></div><div className="panel progress-tip"><Sparkles size={17}/><div><strong>Your next step</strong><p>Try a guided exercise on spotting edge cases in everyday code.</p></div><button className="card-action" onClick={()=>onOpen('learning')}>Practice now <ArrowRight size={14}/></button></div></div>:selected.length?<div className="workspace-list">{selected.map(m=><button key={m.id} className="workspace-list-row" onClick={()=>onOpen(m.id)}><span className="list-icon"><m.icon size={16}/></span><span><strong>{m.title}</strong><small>{m.description}</small></span><span className="workspace-date">{page==='history'?'Reviewed recently':'Saved tool'}</span><ArrowRight size={15}/></button>)}</div>:<div className="empty-state workspace-empty"><Bookmark size={24}/><strong>{page==='saved'?'Nothing saved yet':'No reviews to show yet'}</strong><p>{page==='saved'?'Save tools from Discover to quickly return to them.':'Analyze a public pull request to begin your review history.'}</p><button onClick={onBack}>Explore tools <ArrowRight size={14}/></button></div>}</section>}
-function GenericModule({page,onBack}:{page:string;onBack:()=>void}){const m=modules.find(x=>x.id===page)??modules[6];return <section className="module-page"><Back onBack={onBack} label={m.category.toUpperCase()} title={m.title+'.'} subtitle={m.description}/><div className="generic-card panel"><div className="generic-icon"><m.icon size={21}/></div><div><span className="panel-kicker">READY WHEN YOU ARE</span><h3>Start with a public pull request</h3><p>Paste a GitHub PR URL on the Discover page to explore a clearly labeled sample review workflow.</p><button className="start-button" onClick={onBack}>Go to Discover <ArrowRight size={14}/></button></div></div></section>}
-function Back({onBack,label,title,subtitle}:{onBack:()=>void;label:string;title:string;subtitle:string}){return <><button className="back-link" onClick={onBack}><ArrowLeft size={15}/> Back to discover</button><div className="module-page-heading"><div className="eyebrow small-eyebrow">{label}</div><h1>{title}</h1><p>{subtitle}</p></div></>}
-function sampleReview(url:string):ReviewResponse{return {repository:url.match(/github\.com\/([^/]+\/[^/]+)/i)?.[1]??'acme/metrics',pull_request_title:'Handle empty input in average calculation',pull_request_number:42,findings} as unknown as ReviewResponse}
+function SeverityBadge({ severity }: { severity: Severity }) { return <span className={`severity-badge severity-${severity}`}><i/>{pretty(severity)}</span>; }
+
+function HistoryPage({ state, error, items, onOpen, onDiscover }: { state: string; error: string; items: ReviewResponse[]; onOpen: (id: string) => void; onDiscover: () => void }) {
+  return <section className="content-page"><PageHeading eyebrow="WORKSPACE / REVIEWS" title="Recent reviews" intro="Reviews stored by the configured backend."/>{state === 'loading' && <LoadingState title="Loading history" detail="Fetching recent reviews from the API."/>}{state === 'error' && <ErrorState title="History unavailable" message={error} action="Try analysis" onAction={onDiscover}/ >}{state === 'ready' && (items.length ? <div className="record-list">{items.map((item) => <button className="record-row" key={item.review_id} type="button" onClick={() => onOpen(item.review_id)}><span className="record-icon"><GitPullRequest size={17}/></span><span className="record-main"><strong>{item.pull_request.title}</strong><small>{item.pull_request.repository_owner}/{item.pull_request.repository_name} · #{item.pull_request.pull_request_number}</small></span><span className={`mode-badge ${item.is_demo ? 'demo' : 'live'}`}>{item.is_demo ? 'Demo' : 'Live'}</span><span className="record-time">{formatDate(item.created_at)}</span><ArrowRight size={15}/></button>)}</div> : <EmptyState icon={<History size={22}/>} title="No saved reviews" detail="The backend has not stored a review yet." action="Analyze a PR" onAction={onDiscover}/> )}</section>;
+}
+
+function SavedPage({ state, error, items, onRemove, onSelect, onRefresh, onDiscover }: { state: string; error: string; items: SavedPullRequest[]; onRemove: (item: SavedPullRequest) => void; onSelect: (item: SavedPullRequest) => void; onRefresh: () => void; onDiscover: () => void }) {
+  return <section className="content-page"><PageHeading eyebrow="WORKSPACE / SAVED" title="Saved pull requests" intro="Links saved by the backend. Saving a link does not save review history."/><div className="page-heading-action"><button className="secondary-button" type="button" onClick={onRefresh}>Refresh <Activity size={14}/></button></div>{state === 'loading' && <LoadingState title="Loading saved links" detail="Fetching saved pull requests."/>}{state === 'error' && <ErrorState title="Saved links unavailable" message={error} action="Try again" onAction={onRefresh}/>}{state === 'ready' && (items.length ? <div className="record-list">{items.map((item) => <div className="record-row saved-row" key={item.saved_id}><span className="record-icon"><Bookmark size={17}/></span><button className="saved-url" type="button" onClick={() => onSelect(item)}>{item.url}</button><span className="temporary-label">{item.temporary ? 'Temporary' : 'Persistent'}</span><button className="remove-button" type="button" onClick={() => onRemove(item)} aria-label={`Remove ${item.url}`}><X size={16}/></button></div>)}</div> : <EmptyState icon={<Bookmark size={22}/>} title="No saved pull requests" detail="Save a pull request from its review workspace." action="Analyze a PR" onAction={onDiscover}/> )}</section>;
+}
+
+function DiffPage({ review, state, error, files, warnings, onBack, onDiscover }: { review: ReviewResponse | null; state: string; error: string; files: DiffFile[]; warnings: string[]; onBack: () => void; onDiscover: () => void }) {
+  return <section className="content-page"><PageHeading eyebrow="REVIEW / DIFF" title="The changed lines" intro={review ? `${review.pull_request.repository_owner}/${review.pull_request.repository_name} · #${review.pull_request.pull_request_number}` : 'Diffs are available after a review is opened.'}/>{state === 'loading' && <LoadingState title="Loading diff" detail="Retrieving the stored diff from the API."/>}{state === 'error' && <ErrorState title="Diff unavailable" message={error} action="Back to review" onAction={onBack}/>}{state === 'ready' && !review && <EmptyState icon={<FileCode2 size={22}/>} title="No review selected" detail="Open a review first. Stored review diffs are available when the API returned them." action="Analyze a PR" onAction={onDiscover}/>}{state === 'ready' && review && (files.length ? <><div className="diff-toolbar"><span><FileCode2 size={15}/> {files.length} changed files returned</span><span>Diff patches may be omitted for binary or large files.</span></div>{warnings.map((warning, index) => <div className="alert warning-alert" key={`${index}-${warning}`}><CircleAlert size={15}/>{warning}</div>)}<div className="diff-files">{files.map((file) => <DiffFileView file={file} key={`${file.path}-${file.status}`}/>)}</div></> : <EmptyState icon={<FileCode2 size={22}/>} title="No diff lines available" detail="The API returned no patch lines for this review. A file may have an omitted patch, or the review may contain no diff data." action="Back to review" onAction={onBack}/> )}</section>;
+}
+
+function DiffFileView({ file }: { file: DiffFile }) {
+  return <details className="diff-file" open><summary><span><FileCode2 size={15}/><code>{file.path}</code>{file.previous_path && <small>from {file.previous_path}</small>}</span><span className="diff-counts"><b>+{file.added}</b> <i>−{file.removed}</i> <em>{pretty(file.status)}</em></span></summary>{file.truncated && <div className="file-truncated"><CircleAlert size={14}/> GitHub did not provide a patch for this file.</div>}{file.hunks.map((hunk, index) => <section className="diff-hunk" key={`${hunk.header}-${index}`}><div className="hunk-header">{hunk.header}</div>{hunk.lines.map((line, lineIndex) => <div className={`diff-line ${line.kind}`} key={`${line.line}-${line.kind}-${lineIndex}`}><span>{line.line}</span><code>{line.kind === 'added' ? '+' : line.kind === 'removed' ? '−' : ' '}&nbsp;{line.text}</code></div>)}</section>)}</details>;
+}
+
+function LearningPage({ state, error, exercises, active, setActive, answer, setAnswer, result, answerError, busy, progress, history, onSubmit }: { state: string; error: string; exercises: LearningExercise[]; active?: LearningExercise; setActive: (id: string) => void; answer: string; setAnswer: (value: string) => void; result: LearningResult | null; answerError: string; busy: boolean; progress: LearningProgress | null; history: LearningHistory | null; onSubmit: (event: FormEvent) => void }) {
+  if (state === 'loading') return <section className="content-page"><PageHeading eyebrow="PRACTICE / LEARNING" title="Learning lab" intro="Exercises served by PR Mentor."/><LoadingState title="Loading exercises" detail="Fetching exercises and saved progress."/></section>;
+  if (state === 'error') return <section className="content-page"><PageHeading eyebrow="PRACTICE / LEARNING" title="Learning lab" intro="Exercises served by PR Mentor."/><ErrorState title="Learning is unavailable" message={error} action="Try again" onAction={() => window.location.reload()}/></section>;
+  if (!active) return <section className="content-page"><PageHeading eyebrow="PRACTICE / LEARNING" title="Learning lab" intro="Exercises served by PR Mentor."/><EmptyState icon={<BookOpen size={22}/>} title="No exercises available" detail="The backend returned an empty exercise list." action="Back to discover" onAction={() => window.location.assign('/')}/></section>;
+  return <section className="content-page learning-page"><PageHeading eyebrow="PRACTICE / LEARNING" title="Learning lab" intro="Practice with exercises and progress stored by the backend."/><div className="learning-layout"><aside className="exercise-list"><div className="list-heading">EXERCISES <span>{exercises.length}</span></div>{exercises.map((exercise, index) => <button type="button" className={`exercise-link ${active.id === exercise.id ? 'active' : ''}`} key={exercise.id} onClick={() => setActive(exercise.id)}><span className="exercise-number">{String(index + 1).padStart(2, '0')}</span><span><strong>{exercise.title}</strong><small>{pretty(exercise.difficulty)} · {pretty(exercise.category)}</small></span><ChevronRight size={15}/></button>)}<div className="progress-box"><div><span>LEARNING ACCURACY</span><strong>{Math.round((progress?.accuracy ?? 0) * 100)}%</strong></div><div className="progress-track"><i style={{ width: `${Math.max(0, Math.min(100, (progress?.accuracy ?? 0) * 100))}%` }}/></div><small>{progress?.attempt_count ?? 0} attempts · {progress?.temporary ? 'temporary' : 'saved by backend'}</small></div></aside>
+    <div className="exercise-content"><div className="exercise-meta"><span>{active.language.toUpperCase()} / {pretty(active.category)}</span><span>{pretty(active.difficulty)}</span></div><h2>{active.title}</h2><p>{active.description}</p><div className="exercise-instruction"><strong>{active.instructions}</strong></div><pre className="exercise-code"><code>{active.code_snippet}</code></pre>{active.hints.length > 0 && <details className="hint-details"><summary><CircleAlert size={14}/> Show a hint</summary><ul>{active.hints.map((hint, index) => <li key={`${index}-${hint}`}>{hint}</li>)}</ul></details>}
+      <form onSubmit={onSubmit} className="exercise-form"><fieldset><legend>Choose your answer</legend>{active.options.map((option, index) => <label className={`answer-option ${answer === option ? 'selected' : ''}`} key={`${index}-${option}`}><input type="radio" name={`answer-${active.id}`} value={option} checked={answer === option} onChange={() => setAnswer(option)}/><span>{String.fromCharCode(65 + index)}</span>{option}</label>)}</fieldset>{answerError && <div className="alert error-alert" role="alert"><CircleAlert size={15}/>{answerError}</div>}<button className="primary-button" type="submit" disabled={!answer || busy}>{busy ? <><LoaderCircle className="spin" size={15}/> Checking</> : <>Submit answer <ArrowRight size={15}/></>}</button></form>
+      {result && <div className={`answer-result ${result.correct ? 'correct' : 'incorrect'}`} role="status"><div><span>{result.correct ? <CheckCircle2 size={18}/> : <CircleAlert size={18}/>}</span><strong>{result.feedback}</strong></div><p>{result.explanation}</p><small>{result.points} points · progress updated by backend</small></div>}
+      <div className="learning-foot"><div><Activity size={15}/><span>{progress?.exercises_completed ?? 0} submissions recorded</span></div><div><History size={15}/><span>{history?.attempts.length ?? 0} saved attempts</span></div></div>
+    </div></div></section>;
+}
+
+function PageHeading({ eyebrow, title, intro }: { eyebrow: string; title: string; intro: string }) { return <div className="page-heading simple"><div><div className="eyebrow">{eyebrow}</div><h1>{title}</h1><p>{intro}</p></div></div>; }
+
+function LoadingState({ title, detail }: { title: string; detail: string }) { return <div className="state-panel loading-panel" role="status"><LoaderCircle size={21} className="spin"/><div><strong>{title}</strong><p>{detail}</p></div></div>; }
+
+function ErrorState({ title, message, action, onAction }: { title: string; message: string; action: string; onAction: () => void }) { return <div className="state-panel error-panel" role="alert"><CircleAlert size={21}/><div><strong>{title}</strong><p>{message}</p><button type="button" className="text-action" onClick={onAction}>{action} <ArrowRight size={14}/></button></div></div>; }
+
+function EmptyState({ icon, title, detail, action, onAction }: { icon: ReactNode; title: string; detail: string; action: string; onAction: () => void }) { return <div className="empty-panel"><span className="empty-icon">{icon}</span><strong>{title}</strong><p>{detail}</p><button type="button" className="secondary-button" onClick={onAction}>{action} <ArrowRight size={14}/></button></div>; }

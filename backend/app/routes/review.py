@@ -1,3 +1,13 @@
+ member-3-ai-review
+"""Review API routes."""
+
+from app.ai_review.client import AIConfigurationError, AIProviderError
+from app.github_service.client import GitHubServiceError
+from app.github_service.pull_requests import ingest_pull_request
+from app.schemas.review import ReviewAnalyzeRequest, ReviewResponse
+from app.services.review_orchestrator import run_review
+from fastapi import APIRouter, HTTPException
+
 """Stable review API consumed by the frontend."""
 
 from fastapi import APIRouter, HTTPException, Query
@@ -7,11 +17,30 @@ from app.github_service.client import GitHubAPIError
 from app.github_service.parser import InvalidPullRequestURL
 from app.schemas.review import AnalyzeRequest, DiffResponse, ReviewResponse, SavedPullRequestRequest
 from app.services.review_orchestrator import analyze
+ main
 
 router = APIRouter(prefix="/api/reviews", tags=["reviews"])
 
 
 @router.post("/analyze", response_model=ReviewResponse)
+member-3-ai-review
+def analyze_pull_request(request: ReviewAnalyzeRequest) -> ReviewResponse:
+    """Analyze a public GitHub PR URL and return the frontend response shape."""
+    try:
+        payload = ingest_pull_request(request.url)
+        return run_review(payload)
+    except GitHubServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    except AIConfigurationError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="AI review is not configured. Set AI_API_KEY and AI_MODEL.",
+        ) from exc
+    except AIProviderError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        
 async def analyze_review(payload: AnalyzeRequest):
     try:
         return await analyze(payload)
@@ -104,3 +133,4 @@ def get_review(review_id: str):
     if review is None:
         raise HTTPException(status_code=404, detail="Review not found.")
     return review
+ main

@@ -1,44 +1,87 @@
-import type { ApiError, ReviewResponse } from '../types/review';
+import type {
+  AnalysisMode,
+  ApiErrorBody,
+  DiffResponse,
+  LearningExercise,
+  LearningHistory,
+  LearningProgress,
+  LearningResult,
+  ReviewResponse,
+  SavedPullRequest,
+} from '../types/review';
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000').replace(/\/$/, '');
 
-export interface OtpChallenge { challenge_id: string; expires_in: number; delivery: 'demo'|'email'|'sms'; demo_otp?: string }
-export interface AuthSession { access_token: string; token_type: string; identity: string }
-
-async function authPost<T>(path: string, payload: object): Promise<T> {
-  const response = await fetch(`${API_BASE}/api/auth/${path}`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) });
-  const data = await response.json().catch(() => ({})) as {detail?:string};
-  if (!response.ok) throw new Error(data.detail ?? `Login service returned ${response.status}`);
-  return data as T;
-}
-
-export function sendLoginOtp(method:'email'|'phone', identifier:string) {
-  return authPost<OtpChallenge>('otp/send', { method, identifier });
-}
-export function verifyLoginOtp(challenge_id:string, code:string) {
-  return authPost<AuthSession>('otp/verify', { challenge_id, code });
-}
-
-export async function analyzePullRequest(url: string): Promise<ReviewResponse> {
-  const response = await fetch(`${API_BASE}/api/reviews/analyze`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }),
-  });
-  if (!response.ok) {
-    let error: ApiError = { detail: `Review service returned ${response.status}` };
-    try { error = await response.json() as ApiError; } catch { /* Keep the useful status message. */ }
-    throw new Error(error.detail);
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      headers: { ...(init?.body ? { 'Content-Type': 'application/json' } : {}), ...init?.headers },
+    });
+  } catch {
+    throw new Error('The PR Mentor API could not be reached. Check that the backend is running and try again.');
   }
-  return await response.json() as ReviewResponse;
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({})) as ApiErrorBody;
+    const detail = Array.isArray(body.detail)
+      ? body.detail.map((item) => item.msg).filter(Boolean).join(' ')
+      : body.detail ?? body.error?.message;
+    throw new Error(detail || `The PR Mentor API returned ${response.status}.`);
+  }
+  return response.json() as Promise<T>;
 }
 
-export async function getReview(reviewId: string): Promise<ReviewResponse> {
-  const response = await fetch(`${API_BASE}/api/reviews/${encodeURIComponent(reviewId)}`);
-  if (!response.ok) throw new Error(`Could not load review (${response.status})`);
-  return await response.json() as ReviewResponse;
+export function analyzePullRequest(url: string, mode: AnalysisMode): Promise<ReviewResponse> {
+  return request<ReviewResponse>('/api/reviews/analyze', {
+    method: 'POST',
+    body: JSON.stringify({ url, mode, include_learning: true }),
+  });
 }
 
-export async function getReviewHistory(): Promise<ReviewResponse[]> {
-  const response = await fetch(`${API_BASE}/api/reviews/history`);
-  if (!response.ok) throw new Error(`Could not load review history (${response.status})`);
-  return await response.json() as ReviewResponse[];
+export function getReviewHistory(): Promise<ReviewResponse[]> {
+  return request<ReviewResponse[]>('/api/reviews/history');
+}
+
+export function getReview(reviewId: string): Promise<ReviewResponse> {
+  return request<ReviewResponse>(`/api/reviews/${encodeURIComponent(reviewId)}`);
+}
+
+export function getReviewDiff(reviewId: string): Promise<DiffResponse> {
+  return request<DiffResponse>(`/api/reviews/${encodeURIComponent(reviewId)}/diff`);
+}
+
+export function getSavedPullRequests(): Promise<SavedPullRequest[]> {
+  return request<SavedPullRequest[]>('/api/reviews/saved');
+}
+
+export function savePullRequest(url: string): Promise<SavedPullRequest> {
+  return request<SavedPullRequest>('/api/reviews/saved', {
+    method: 'POST',
+    body: JSON.stringify({ url }),
+  });
+}
+
+export function deleteSavedPullRequest(savedId: string): Promise<{ deleted: boolean }> {
+  return request<{ deleted: boolean }>(`/api/reviews/saved/${encodeURIComponent(savedId)}`, { method: 'DELETE' });
+}
+
+export function getLearningExercises(): Promise<LearningExercise[]> {
+  return request<LearningExercise[]>('/api/learning/exercises');
+}
+
+export function submitExercise(exerciseId: string, answer: string): Promise<LearningResult> {
+  return request<LearningResult>(`/api/learning/exercises/${encodeURIComponent(exerciseId)}/submit`, {
+    method: 'POST',
+    body: JSON.stringify({ answer }),
+  });
+}
+
+export function getLearningProgress(): Promise<LearningProgress> {
+  return request<LearningProgress>('/api/learning/progress');
+}
+
+export function getLearningHistory(): Promise<LearningHistory> {
+  return request<LearningHistory>('/api/learning/history');
 }
